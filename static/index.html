@@ -11,6 +11,35 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
+       与文字同色（currentColor），随字号缩放，不依赖任何字体或 emoji -->
+  <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="icon-upload" viewBox="0 0 24 24">
+      <path d="M12 15.5V4.5"/><path d="M7.5 9 12 4.5 16.5 9"/>
+      <path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/>
+    </symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24">
+      <path d="M12 4.5v11"/><path d="M7.5 11 12 15.5 16.5 11"/>
+      <path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/>
+    </symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24">
+      <path d="M14 3H7.5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/>
+      <path d="M14 3v5h5"/><path d="M9 13.5h6"/><path d="M9 17h4"/>
+    </symbol>
+    <symbol id="icon-box" viewBox="0 0 24 24">
+      <path d="M20.5 8.2 12 3.5 3.5 8.2v7.6L12 20.5l8.5-4.7z"/>
+      <path d="M3.5 8.2 12 12.9l8.5-4.7"/><path d="M12 12.9v7.6"/>
+    </symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24">
+      <rect x="9" y="9" width="12" height="12" rx="2.2"/>
+      <path d="M5.5 15H4.2A2.2 2.2 0 0 1 2 12.8V4.2A2.2 2.2 0 0 1 4.2 2h8.6A2.2 2.2 0 0 1 15 4.2v1.3"/>
+    </symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24">
+      <path d="M6.5 6.5 17.5 17.5"/><path d="M17.5 6.5 6.5 17.5"/>
+    </symbol>
+  </svg>
+
   <div class="glow"></div>
 
   <header class="site-header">
@@ -26,27 +55,27 @@
 
   <main class="card">
     <nav class="tabs" role="tablist">
-      <button class="tab active" id="tab-upload" role="tab" aria-selected="true" data-panel="panel-upload">📤 上传文件</button>
-      <button class="tab" id="tab-fetch" role="tab" aria-selected="false" data-panel="panel-fetch">📥 用分享码下载</button>
+      <button class="tab active" id="tab-upload" role="tab" aria-selected="true" data-panel="panel-upload"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>上传文件</button>
+      <button class="tab" id="tab-fetch" role="tab" aria-selected="false" data-panel="panel-fetch"><svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg>用分享码下载</button>
     </nav>
 
     <!-- ============================ 上传 ============================ -->
     <section class="panel active" id="panel-upload">
       <div class="dropzone" id="dropzone" tabindex="0" role="button"
            aria-label="点击或拖拽文件到此处上传">
-        <div class="dz-icon">📁</div>
+        <div class="dz-icon"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg></div>
         <p class="dz-title">点击选择文件，或把文件拖到这里</p>
         <p class="dz-hint" id="dz-hint">单文件上限 — MB，默认有效期 1 小时</p>
         <input type="file" id="file-input" hidden>
       </div>
 
       <div class="picked hidden" id="picked">
-        <span class="picked-icon">📄</span>
+        <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg></span>
         <div class="picked-meta">
           <strong id="picked-name">—</strong>
           <span id="picked-size" class="muted">—</span>
         </div>
-        <button class="icon-btn" id="clear-file" title="移除">✕</button>
+        <button class="icon-btn" id="clear-file" title="移除" aria-label="移除文件"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
       </div>
 
       <div class="field">
@@ -81,7 +110,7 @@
         <p class="result-label">分享码（凭此取件）</p>
         <div class="code-row">
           <span class="code" id="code-text">--------</span>
-          <button class="icon-btn" id="copy-code" title="复制分享码">📋</button>
+          <button class="icon-btn" id="copy-code" title="复制分享码" aria-label="复制分享码"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg></button>
         </div>
         <div class="link-row">
           <input type="text" id="share-link" readonly>
@@ -113,7 +142,7 @@
       </div>
 
       <div class="file-card hidden" id="file-card">
-        <span class="picked-icon">📦</span>
+        <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-box"></use></svg></span>
         <div class="picked-meta">
           <strong id="f-name">—</strong>
           <span class="muted"><span id="f-size">—</span> · 剩余 <span id="f-left">—</span></span>

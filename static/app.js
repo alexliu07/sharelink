@@ -109,10 +109,13 @@
     }
   }
 
-  const flash = (button, text) => {
-    const original = button.textContent;
-    button.textContent = text;
-    setTimeout(() => { button.textContent = original; }, 1200);
+  // 复制成功的反馈图标（与页面 sprite 里同一套 SVG，不再用 emoji）
+  const ICON_CHECK = '<svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>';
+
+  const flash = (button, html) => {
+    const original = button.innerHTML;
+    button.innerHTML = html;
+    setTimeout(() => { button.innerHTML = original; }, 1200);
   };
 
   /* ---------------------------------------------------------- 站点统计 */
@@ -306,11 +309,11 @@
 
   els.copyCode.addEventListener("click", async () => {
     if (!state.share) return;
-    if (await copyText(state.share.code)) flash(els.copyCode, "✅");
+    if (await copyText(state.share.code)) flash(els.copyCode, ICON_CHECK);
   });
   els.copyLink.addEventListener("click", async () => {
     if (!state.share) return;
-    if (await copyText(state.share.share_url)) flash(els.copyLink, "已复制");
+    if (await copyText(state.share.share_url)) flash(els.copyLink, `${ICON_CHECK} 已复制`);
   });
   els.newUpload.addEventListener("click", () => { hideNotice(); resetUploadView(); clearFile(); });
   els.revoke.addEventListener("click", async () => {

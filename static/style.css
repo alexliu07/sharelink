@@ -68,6 +68,10 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
 .tab {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid transparent;
@@ -100,7 +104,8 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 .dropzone:hover, .dropzone:focus-visible { border-color: var(--accent); background: rgba(108, 140, 255, .08); outline: none; }
 .dropzone.dragover { border-color: var(--accent-2); background: rgba(56, 217, 192, .1); }
-.dz-icon { font-size: 34px; }
+.dz-icon { color: var(--accent); }
+.dz-icon .icon { width: 42px; height: 42px; stroke-width: 1.4; }
 .dz-title { margin: 10px 0 4px; font-size: 15px; }
 .dz-hint, .hint, .muted { color: var(--muted); font-size: 12.5px; }
 .dz-hint { margin: 0; }
@@ -117,7 +122,8 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   border: 1px solid var(--card-border);
 }
 .file-card { margin-top: 16px; }
-.picked-icon { font-size: 22px; }
+.picked-icon { display: flex; align-items: center; color: var(--accent-2); }
+.picked-icon .icon { width: 24px; height: 24px; }
 .picked-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .picked-meta strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -188,8 +194,22 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .ghost:hover { background: rgba(255, 255, 255, .12); }
 .danger { border-color: rgba(255, 107, 129, .45); color: var(--danger); }
 .danger:hover { background: rgba(255, 107, 129, .14); }
-.icon-btn { padding: 8px 10px; font-size: 15px; }
+.icon-btn { display: inline-flex; align-items: center; padding: 8px 10px; font-size: 15px; }
+.icon-btn .icon { width: 18px; height: 18px; }
 .icon-btn:hover { background: rgba(255, 255, 255, .14); }
+
+/* 通用图标：随字号缩放、与文字同色、不参与 flex 压缩 */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.icon {
+  width: 1.1em;
+  height: 1.1em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 .progress { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .bar { flex: 1; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, .1); overflow: hidden; }
