@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import contextlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from . import config, db, storage
@@ -27,6 +27,8 @@ def purge_expired(now: Optional[datetime] = None, limit: int = 500) -> Dict[str,
     for record in expired:
         storage.delete_stored_file(record.path)
         if db.delete_file_row(record.code):
+            # 投递记录跟着文件一起走，收件箱里不会留下取不到的死条目
+            db.delete_transfers_for_code(record.code)
             freed += record.size
             codes.append(record.code)
 
@@ -41,7 +43,20 @@ def purge_one(code: str) -> bool:
     if record is None:
         return False
     storage.delete_stored_file(record.path)
-    return db.delete_file_row(code)
+    removed = db.delete_file_row(code)
+    db.delete_transfers_for_code(code)
+    return removed
+
+
+def prune_idle_devices(now: Optional[datetime] = None, days: Optional[int] = None) -> List[str]:
+    """回收长期未活跃且收件箱为空的设备，避免设备列表无限膨胀。"""
+    now = now or db.utcnow()
+    days = config.DEVICE_IDLE_DAYS if days is None else days
+    cutoff = now - timedelta(days=days)
+    removed = db.prune_idle_devices(cutoff, now=now)
+    if removed:
+        logger.info("已回收 %d 台长期未活跃设备：%s", len(removed), ", ".join(removed))
+    return removed
 
 
 async def cleanup_loop(
@@ -61,6 +76,7 @@ async def cleanup_loop(
             result = await asyncio.to_thread(purge_expired)
             if result["count"]:
                 logger.info("定时清理完成：%s 个文件", result["count"])
+            await asyncio.to_thread(prune_idle_devices)
         except Exception:  # 清理失败不能让整个服务挂掉
             logger.exception("过期清理任务出错，将在下一轮重试")
         with contextlib.suppress(asyncio.TimeoutError):
