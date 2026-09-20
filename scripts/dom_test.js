@@ -171,6 +171,31 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual(doc.querySelectorAll("#send-targets input").length, 2);
     assert.strictEqual($("#send-confirm").disabled, true, "未选设备时不该能发");
   });
+  check("设备相关输入框与分享码输入框同款盒子样式（不是浏览器默认外观）", () => {
+    const ref = window.getComputedStyle($("#code-input"));
+    const props = ["paddingTop", "paddingLeft", "borderRadius", "borderTopWidth", "backgroundColor", "color"];
+    for (const sel of ["#device-name-input", "#send-from-name", "#send-note"]) {
+      const st = window.getComputedStyle($(sel));
+      for (const prop of props) {
+        assert.strictEqual(st[prop], ref[prop], `${sel} 的 ${prop}=${st[prop]}，分享码框=${ref[prop]}`);
+      }
+    }
+  });
+  check("字号是 14px（不是浏览器默认的 13.33px）", () => {
+    for (const sel of ["#device-name-input", "#send-from-name", "#send-note"]) {
+      const size = window.getComputedStyle($(sel)).fontSize;
+      assert.strictEqual(size, "14px", `${sel} 字号=${size}`);
+    }
+  });
+  check("设备名/附言输入框不再是分享码那种等宽大写字距", () => {
+    const ref = window.getComputedStyle($("#code-input"));
+    for (const sel of ["#device-name-input", "#send-note"]) {
+      const st = window.getComputedStyle($(sel));
+      assert.notStrictEqual(st.fontFamily, ref.fontFamily, `${sel} 仍是等宽字体`);
+      assert.notStrictEqual(st.letterSpacing, ref.letterSpacing, `${sel} 仍带分享码字距`);
+      assert.notStrictEqual(st.textTransform, ref.textTransform, `${sel} 仍是大写转换`);
+    }
+  });
   doc.querySelectorAll("#send-targets input").forEach((box) => { box.checked = true; box.dispatchEvent(new window.Event("change")); });
   check("勾两台后按钮文案更新", () => {
     assert.strictEqual($("#send-confirm").disabled, false);

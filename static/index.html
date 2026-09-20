@@ -155,7 +155,7 @@
       <div class="field">
         <label for="code-input">分享码</label>
         <div class="code-input-row">
-          <input type="text" id="code-input" placeholder="例如 AB3D7K9M" autocomplete="off"
+          <input type="text" id="code-input" class="input" placeholder="例如 AB3D7K9M" autocomplete="off"
                  spellcheck="false" maxlength="12">
           <button class="primary inline" id="lookup-btn">查询</button>
         </div>
@@ -185,7 +185,7 @@
         <div class="field">
           <label for="device-name-input">本设备名称</label>
           <div class="code-input-row">
-            <input type="text" id="device-name-input" maxlength="40" placeholder="例如：我的笔记本"
+            <input type="text" id="device-name-input" class="input" maxlength="40" placeholder="例如：我的笔记本"
                    autocomplete="off" spellcheck="false">
             <button class="primary inline" id="device-add-btn"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>添加本设备</button>
           </div>
@@ -234,11 +234,11 @@
       <p class="hint hidden" id="send-no-devices">设备列表还是空的：让对方在"设备"标签页里点一次"添加本设备"。</p>
       <div class="field">
         <label for="send-from-name">发送者显示为</label>
-        <input type="text" id="send-from-name" maxlength="40" placeholder="匿名设备">
+        <input type="text" id="send-from-name" class="input" maxlength="40" placeholder="匿名设备">
       </div>
       <div class="field">
         <label for="send-note">附言（可选）</label>
-        <input type="text" id="send-note" maxlength="200" placeholder="例如：周会材料">
+        <input type="text" id="send-note" class="input" maxlength="200" placeholder="例如：周会材料，看完删掉就行">
       </div>
       <div class="progress hidden" id="send-progress">
         <div class="bar"><div class="bar-fill" id="send-bar"></div></div>

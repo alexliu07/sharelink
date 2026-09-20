@@ -150,7 +150,7 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 
 .custom-ttl { display: flex; gap: 8px; margin-top: 10px; }
-.custom-ttl input, .custom-ttl select, .link-row input, #code-input {
+.custom-ttl input, .custom-ttl select, .link-row input, #code-input, .input {
   padding: 11px 13px;
   border-radius: 10px;
   border: 1px solid var(--card-border);
@@ -159,6 +159,15 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   font-size: 14px;
   font-family: inherit;
 }
+/* 统一交互态：新加的输入框只要挂 .input 就跟分享码输入框同款 */
+.input { width: 100%; }
+.input:focus, #code-input:focus, .custom-ttl input:focus, .custom-ttl select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, .16);
+}
+.input::placeholder { color: rgba(147, 160, 200, .65); }
+.input:disabled { opacity: .6; cursor: not-allowed; }
 .custom-ttl input { width: 90px; }
 
 .primary {
@@ -236,9 +245,9 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .link-row, .code-input-row { display: flex; gap: 8px; margin-top: 12px; }
 .link-row input { flex: 1; min-width: 0; font-size: 12.5px; }
 .code-input-row { margin-top: 0; }
-.code-input-row input {
-  flex: 1;
-  min-width: 0;
+.code-input-row input { flex: 1; min-width: 0; }
+/* 等宽 + 字距只给分享码输入框：设备名这类普通文本框不该长成分享码的样子 */
+#code-input {
   letter-spacing: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 18px;
