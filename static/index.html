@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShareLink · 文件共享</title>
+  <meta name="description" content="上传文件、设置有效期限、拿分享码取件，到期自动删除。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="glow"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="logo">🔗</span>
+      <div>
+        <h1>ShareLink</h1>
+        <p class="tagline">上传 → 拿分享码 → 到期自动删除</p>
+      </div>
+    </div>
+    <div class="stats" id="stats" title="站点统计">载入中…</div>
+  </header>
+
+  <main class="card">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" id="tab-upload" role="tab" aria-selected="true" data-panel="panel-upload">📤 上传文件</button>
+      <button class="tab" id="tab-fetch" role="tab" aria-selected="false" data-panel="panel-fetch">📥 用分享码下载</button>
+    </nav>
+
+    <!-- ============================ 上传 ============================ -->
+    <section class="panel active" id="panel-upload">
+      <div class="dropzone" id="dropzone" tabindex="0" role="button"
+           aria-label="点击或拖拽文件到此处上传">
+        <div class="dz-icon">📁</div>
+        <p class="dz-title">点击选择文件，或把文件拖到这里</p>
+        <p class="dz-hint" id="dz-hint">单文件上限 — MB，默认有效期 1 小时</p>
+        <input type="file" id="file-input" hidden>
+      </div>
+
+      <div class="picked hidden" id="picked">
+        <span class="picked-icon">📄</span>
+        <div class="picked-meta">
+          <strong id="picked-name">—</strong>
+          <span id="picked-size" class="muted">—</span>
+        </div>
+        <button class="icon-btn" id="clear-file" title="移除">✕</button>
+      </div>
+
+      <div class="field">
+        <label>有效期限</label>
+        <div class="chips" id="ttl-chips">
+          <button class="chip" data-ttl="600">10 分钟</button>
+          <button class="chip active" data-ttl="3600">1 小时</button>
+          <button class="chip" data-ttl="86400">1 天</button>
+          <button class="chip" data-ttl="604800">7 天</button>
+          <button class="chip" data-ttl="2592000">30 天</button>
+          <button class="chip chip-custom" id="chip-custom">自定义…</button>
+        </div>
+        <div class="custom-ttl hidden" id="custom-ttl">
+          <input type="number" id="custom-value" min="1" value="2" inputmode="numeric">
+          <select id="custom-unit">
+            <option value="60">分钟</option>
+            <option value="3600">小时</option>
+            <option value="86400">天</option>
+          </select>
+        </div>
+        <p class="hint" id="ttl-hint">到期后文件会被服务器自动删除，不可恢复。</p>
+      </div>
+
+      <button class="primary" id="upload-btn" disabled>生成分享码</button>
+
+      <div class="progress hidden" id="progress">
+        <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+        <span id="progress-text">0%</span>
+      </div>
+
+      <div class="result hidden" id="result">
+        <p class="result-label">分享码（凭此取件）</p>
+        <div class="code-row">
+          <span class="code" id="code-text">--------</span>
+          <button class="icon-btn" id="copy-code" title="复制分享码">📋</button>
+        </div>
+        <div class="link-row">
+          <input type="text" id="share-link" readonly>
+          <button class="ghost" id="copy-link">复制链接</button>
+        </div>
+        <ul class="result-meta">
+          <li>文件名：<span id="r-name">—</span></li>
+          <li>大小：<span id="r-size">—</span></li>
+          <li>过期时间：<span id="r-expire">—</span>（剩余 <span id="r-left">—</span>）</li>
+          <li>文件校验码：<span class="mono" id="r-sha">—</span></li>
+        </ul>
+        <div class="result-actions">
+          <button class="ghost" id="new-upload">再传一个</button>
+          <button class="danger" id="revoke">立即删除</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 下载 ============================ -->
+    <section class="panel" id="panel-fetch">
+      <div class="field">
+        <label for="code-input">分享码</label>
+        <div class="code-input-row">
+          <input type="text" id="code-input" placeholder="例如 AB3D7K9M" autocomplete="off"
+                 spellcheck="false" maxlength="12">
+          <button class="primary inline" id="lookup-btn">查询</button>
+        </div>
+        <p class="hint">大小写、空格、短横线都不影响识别。</p>
+      </div>
+
+      <div class="file-card hidden" id="file-card">
+        <span class="picked-icon">📦</span>
+        <div class="picked-meta">
+          <strong id="f-name">—</strong>
+          <span class="muted"><span id="f-size">—</span> · 剩余 <span id="f-left">—</span></span>
+        </div>
+        <a class="primary inline" id="download-btn" href="#" download>下载</a>
+      </div>
+    </section>
+
+    <p class="notice hidden" id="notice"></p>
+  </main>
+
+  <footer class="site-footer">
+    <span>ShareLink · FastAPI + SQLite</span>
+    <span>过期文件由后台任务自动清理</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
