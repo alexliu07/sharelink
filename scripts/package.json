@@ -1,0 +1,11 @@
+{
+  "name": "sharelink-frontend-tests",
+  "private": true,
+  "description": "ShareLink 前端的真 DOM 测试（jsdom）：加载 index.html 并执行 app.js，模拟点击",
+  "scripts": {
+    "test": "node dom_test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}

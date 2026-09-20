@@ -7,7 +7,7 @@
   const els = {
     stats: $("stats"),
     tabs: document.querySelectorAll(".tab"),
-    panels: { upload: $("panel-upload"), fetch: $("panel-fetch") },
+    panels: { upload: $("panel-upload"), fetch: $("panel-fetch"), devices: $("panel-devices") },
     dropzone: $("dropzone"),
     fileInput: $("file-input"),
     dzHint: $("dz-hint"),
@@ -186,7 +186,7 @@
   /* ---------------------------------------------------------- 标签页 */
   function switchTab(name) {
     Object.entries(els.panels).forEach(([key, panel]) => {
-      panel.classList.toggle("active", key === name);
+      if (panel) panel.classList.toggle("active", key === name);
     });
     els.tabs.forEach((tab) => {
       const active = tab.dataset.panel === `panel-${name}`;
@@ -728,7 +728,7 @@
   /* 开着页面时每隔 20 秒刷新一次：设备标签页开着就顺手标已读 */
   setInterval(() => {
     if (!myDevice || document.visibilityState !== "visible") return;
-    refreshInbox({ markSeen: !els.panelDevices.classList.contains("hidden") });
+    refreshInbox({ markSeen: els.panelDevices.classList.contains("active") });
   }, 20000);
 
   /* ---------------------------------------------------------- 初始化 */

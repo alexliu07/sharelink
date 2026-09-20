@@ -18,3 +18,7 @@ data/
 .idea/
 .vscode/
 .DS_Store
+
+# 前端测试依赖（scripts/package.json 里声明，用 npm install 装回来即可）
+node_modules/
+scripts/package-lock.json
