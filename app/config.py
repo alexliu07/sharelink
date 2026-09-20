@@ -59,6 +59,12 @@ MAX_TTL_SECONDS = _env_int("SHARELINK_MAX_TTL_SECONDS", 30 * 24 * 3600)
 #: 后台清理任务扫描间隔（秒）
 CLEANUP_INTERVAL_SECONDS = _env_int("SHARELINK_CLEANUP_INTERVAL_SECONDS", 60)
 
+#: 设备多久没活跃（且收件箱为空）就从设备列表里回收（天）
+DEVICE_IDLE_DAYS = _env_int("SHARELINK_DEVICE_IDLE_DAYS", 30)
+
+#: 一次"发送至设备"最多选多少台目标设备
+MAX_TARGETS_PER_SEND = _env_int("SHARELINK_MAX_TARGETS_PER_SEND", 20)
+
 #: 分享码长度（字符集见 codes.ALPHABET）
 CODE_LENGTH = 8
 
