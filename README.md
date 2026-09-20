@@ -59,6 +59,7 @@ curl -X DELETE http://127.0.0.1:8000/api/files/AB3D7K9M
 | `SHARELINK_MIN_TTL_SECONDS` | `60` | 允许的最短有效期 |
 | `SHARELINK_MAX_TTL_SECONDS` | `2592000` | 允许的最长有效期（30 天） |
 | `SHARELINK_CLEANUP_INTERVAL_SECONDS` | `60` | 后台清理间隔（秒） |
+| `SHARELINK_PUBLIC_BASE_PATH` | 空 | 对外访问的路径前缀：反代挂在 `https://host/share/` 下就设为 `/share`，返回的 `share_url`/`download_url` 会带上它 |
 
 ## 测试
 

@@ -117,13 +117,14 @@ def upload_file(
     db.insert_file(record)
 
     base = str(request.base_url).rstrip("/")
+    prefix = config.PUBLIC_BASE_PATH  # 例如部署在 https://host/share/ 下时为 "/share"
     payload = record.to_public_dict(now)
     payload.update(
         {
             "ttl_seconds": seconds,
             "ttl_human": codes.humanize_seconds(seconds),
-            "share_url": f"{base}/?code={code}",
-            "download_url": f"{base}/api/download/{code}",
+            "share_url": f"{base}{prefix}/?code={code}",
+            "download_url": f"{base}{prefix}/api/download/{code}",
         }
     )
     logger.info("新分享 %s（%s，%d 字节，%s）", code, original_name, saved.size, record.expires_at)

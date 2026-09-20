@@ -28,10 +28,24 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw).expanduser() if raw else default
 
 
+def _env_base_path(name: str, default: str = "") -> str:
+    """对外访问的路径前缀，规范成 ``""`` 或 ``"/prefix"``（结尾不带斜杠）。"""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw or raw == "/":
+        return default
+    if any(ch in raw for ch in "?#"):
+        raise RuntimeError(f"环境变量 {name} 只能是路径前缀（如 /share），当前为 {raw!r}")
+    return "/" + raw.strip("/")
+
+
 #: 上传文件的落盘目录
 DATA_DIR = _env_path("SHARELINK_DATA_DIR", BASE_DIR / "storage")
 #: SQLite 元数据库
 DB_PATH = _env_path("SHARELINK_DB_PATH", BASE_DIR / "data" / "sharelink.db")
+
+#: 对外访问的路径前缀：服务挂在 https://host/share/ 下就设为 /share，
+#: 返回的 share_url / download_url 会自动带上它（默认空，即挂在根路径）。
+PUBLIC_BASE_PATH = _env_base_path("SHARELINK_PUBLIC_BASE_PATH")
 
 #: 单个文件大小上限
 MAX_UPLOAD_MB = _env_int("SHARELINK_MAX_UPLOAD_MB", 200)

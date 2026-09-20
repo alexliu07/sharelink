@@ -214,3 +214,44 @@ class TestOps:
         seen = {client.post("/api/upload", files={"file": ("a.txt", b"x")}, data={"ttl": "1h"}).json()["code"]
                 for _ in range(20)}
         assert len(seen) == 20
+
+
+class TestPublicBasePath:
+    """对外挂在子路径（如 https://host/share/）时，链接要带上前缀。"""
+
+    def test_default_is_root(self, upload):
+        payload = upload(b"x", "a.txt", "1h")
+
+        assert payload["share_url"].endswith(f"/?code={payload['code']}")
+        assert "/share/" not in payload["share_url"]
+        assert payload["download_url"].endswith(f"/api/download/{payload['code']}")
+
+    def test_prefix_applied_to_share_and_download_url(self, upload, monkeypatch):
+        monkeypatch.setattr(config, "PUBLIC_BASE_PATH", "/share")
+        payload = upload(b"x", "a.txt", "1h")
+
+        assert payload["share_url"].endswith(f"/share/?code={payload['code']}")
+        assert payload["download_url"].endswith(f"/share/api/download/{payload['code']}")
+
+
+class TestBasePathNormalization:
+    def test_normalizes(self, monkeypatch):
+        for raw, expected in [
+            (None, ""),
+            ("", ""),
+            ("/", ""),
+            ("  ", ""),
+            ("share", "/share"),
+            ("/share", "/share"),
+            ("/share/", "/share"),
+            ("/a/b/", "/a/b"),
+        ]:
+            monkeypatch.setenv("SHARELINK_PUBLIC_BASE_PATH", raw if raw is not None else "")
+            assert config._env_base_path("SHARELINK_PUBLIC_BASE_PATH") == expected, raw
+
+    def test_rejects_query_string(self, monkeypatch):
+        import pytest
+
+        monkeypatch.setenv("SHARELINK_PUBLIC_BASE_PATH", "/share?x=1")
+        with pytest.raises(RuntimeError):
+            config._env_base_path("SHARELINK_PUBLIC_BASE_PATH")
