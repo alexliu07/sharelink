@@ -148,16 +148,17 @@ def download_file(code: str):
 
     db.register_download(record.code)
 
-    # 强制 attachment + nosniff：即使用户上传 HTML/SVG 也不会在本站执行
+    # 交给 FileResponse 生成 Content-Disposition（含 RFC 5987 的中文名编码），
+    # 但显式要求 attachment：即使用户上传 HTML/SVG 也只是下载、不在本站执行。
     headers = {
         "X-Share-Code": record.code,
         "X-Content-Type-Options": "nosniff",
-        "Content-Disposition": "attachment",
     }
     return FileResponse(
         path,
         media_type=record.content_type or "application/octet-stream",
         filename=record.original_name,
+        content_disposition_type="attachment",
         headers=headers,
     )
 
