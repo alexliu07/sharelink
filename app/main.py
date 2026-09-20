@@ -207,11 +207,12 @@ def delete_file(code: str):
 
 # ---------------------------------------------------------------- 设备
 class DeviceCreate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=80, description="设备名，留空按 User-Agent 猜一个")
+    # 只挡异常超长的负载；真正的长度上限由 devices.clean_device_name 截断到 40 字符
+    name: Optional[str] = Field(default=None, max_length=200, description="设备名，留空按 User-Agent 猜一个")
 
 
 class DeviceRename(BaseModel):
-    name: str = Field(..., max_length=80, description="新的设备名")
+    name: str = Field(..., max_length=200, description="新的设备名")
 
 
 @app.post("/api/devices", status_code=201)

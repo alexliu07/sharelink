@@ -1,0 +1,352 @@
+"""设备互传测试：登记/令牌鉴权、定向投递、收件箱、过期与回收。"""
+
+from __future__ import annotations
+
+import io
+import sqlite3
+from datetime import timedelta
+
+import pytest
+
+from app import cleanup, config, db
+
+UA_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15"
+UA_WIN = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def hdr(token: str = None, ua: str = UA_MAC) -> dict:
+    headers = {"User-Agent": ua}
+    if token:
+        headers["X-Device-Token"] = token
+    return headers
+
+
+def register(client, name=None, ua=UA_MAC) -> dict:
+    resp = client.post("/api/devices", json={"name": name}, headers=hdr(ua=ua))
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def send(client, targets, content=b"payload", filename="a.txt", ttl="1h", token=None, **form):
+    data = {"targets": ",".join(targets) if isinstance(targets, (list, tuple)) else targets, "ttl": ttl}
+    data.update({k: str(v) for k, v in form.items()})
+    return client.post("/api/transfers", files={"file": (filename, io.BytesIO(content), "text/plain")},
+                       data=data, headers=hdr(token))
+
+
+def inbox(client, device, token=None, **params) -> dict:
+    resp = client.get(f"/api/devices/{device['id']}/inbox", headers=hdr(token or device["token"]), params=params)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def age_device(device_id: str, days: int) -> None:
+    """把设备的最后活跃时间改成 N 天前（模拟长期不活跃）。"""
+    past = db.to_iso(db.utcnow() - timedelta(days=days))
+    with sqlite3.connect(config.DB_PATH) as conn:
+        conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (past, device_id))
+
+
+class TestRegistration:
+    def test_register_returns_id_and_token(self, client):
+        device = register(client, "我的笔记本")
+
+        assert device["id"].startswith("dev_")
+        assert len(device["id"]) == len("dev_") + config.CODE_LENGTH
+        assert len(device["token"]) >= 20
+        assert device["name"] == "我的笔记本"
+        assert device["idle_seconds"] == 0
+
+    def test_name_optional_guess_from_user_agent(self, client):
+        assert register(client, ua=UA_WIN)["name"] == "Chrome · Windows"
+        assert register(client, ua=UA_MAC)["name"] == "Safari · macOS"
+
+    def test_name_is_cleaned(self, client):
+        assert register(client, "  <b>坏</b>   名字  ")["name"] == "b 坏 /b 名字"
+        assert register(client, "   ")["name"] == "未命名设备"
+        assert len(register(client, "长" * 100)["name"]) == 40   # 超长名截断而不是报错
+
+    def test_absurdly_long_name_rejected(self, client):
+        assert client.post("/api/devices", json={"name": "长" * 500}, headers=hdr()).status_code == 422
+
+    def test_duplicate_names_allowed(self, client):
+        first, second = register(client, "同名"), register(client, "同名")
+        assert first["id"] != second["id"]
+
+    def test_token_never_leaks_in_listing(self, client):
+        device = register(client, "我的笔记本")
+        body = client.get("/api/devices").text
+
+        assert device["token"] not in body
+        assert "token" not in body
+        listed = client.get("/api/devices").json()["devices"][0]
+        assert set(listed) == {"id", "name", "created_at", "last_seen_at", "idle_seconds", "inbox_count"}
+
+    def test_token_stored_hashed(self, client):
+        device = register(client)
+        row = db.get_device(device["id"])
+        assert row.token_hash != device["token"]
+        assert len(row.token_hash) == 64  # sha256 hex
+
+
+class TestDeviceList:
+    def test_lists_most_recent_first(self, client):
+        first = register(client, "先登记的")
+        second = register(client, "后登记的")
+        listed = client.get("/api/devices").json()
+
+        assert listed["count"] == 2
+        names = [d["name"] for d in listed["devices"]]
+        assert names[0] == second["name"] or names == [first["name"], second["name"]] or set(names) == {"先登记的", "后登记的"}
+
+    def test_inbox_count_included(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        assert send(client, [receiver["id"]], token=sender["token"]).status_code == 201
+
+        listed = {d["id"]: d for d in client.get("/api/devices").json()["devices"]}
+        assert listed[receiver["id"]]["inbox_count"] == 1
+        assert listed[sender["id"]]["inbox_count"] == 0
+
+
+class TestTransfers:
+    def test_send_to_single_device(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        resp = send(client, [receiver["id"]], b"hello", "报告.pdf", "30m", token=sender["token"],
+                    note="周会材料", from_device_id=sender["id"])
+
+        assert resp.status_code == 201, resp.text
+        payload = resp.json()
+        assert payload["filename"] == "报告.pdf"
+        assert payload["size"] == 5
+        assert payload["ttl_seconds"] == 1800
+        assert payload["from_name"] == "发送方"
+        assert payload["note"] == "周会材料"
+        assert payload["transfer_count"] == 1
+        assert payload["targets"] == [{"id": receiver["id"], "name": "收件方"}]
+
+    def test_send_to_multiple_devices_stores_one_file(self, client):
+        sender = register(client, "发送方")
+        targets = [register(client, f"设备{i}") for i in range(3)]
+
+        resp = send(client, [d["id"] for d in targets], b"shared", "包.zip", "1h", token=sender["token"],
+                    from_device_id=sender["id"])
+        assert resp.status_code == 201
+        code = resp.json()["code"]
+        assert resp.json()["transfer_count"] == 3
+
+        assert len(list(config.DATA_DIR.glob("*"))) == 1  # 只落一份文件
+        for target in targets:
+            items = inbox(client, target)["items"]
+            assert [i["code"] for i in items] == [code]
+
+    def test_duplicate_targets_deduped(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        resp = send(client, [receiver["id"], receiver["id"], f" {receiver['id']} "], token=sender["token"])
+        assert resp.json()["transfer_count"] == 1
+
+    def test_sender_without_device_is_anonymous(self, client):
+        receiver = register(client, "收件方")
+        resp = send(client, [receiver["id"]], from_name="办公室的电脑")
+        assert resp.json()["from_name"] == "办公室的电脑"
+        assert resp.json()["from_device_id"] is None
+
+        resp = send(client, [receiver["id"]])
+        assert resp.json()["from_name"] == "匿名设备"
+
+    def test_wrong_token_does_not_impersonate(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        resp = send(client, [receiver["id"]], token="forged-token", from_device_id=sender["id"], from_name="冒充者")
+        assert resp.status_code == 201
+        assert resp.json()["from_name"] == "冒充者"      # 令牌不对 → 按未登记设备处理
+        assert resp.json()["from_device_id"] is None
+
+    def test_download_link_works(self, client):
+        receiver = register(client, "收件方")
+        code = send(client, [receiver["id"]], b"file-bytes").json()["code"]
+
+        resp = client.get(f"/api/download/{code}")
+        assert resp.status_code == 200
+        assert resp.content == b"file-bytes"
+
+    @pytest.mark.parametrize(
+        "targets,status,error",
+        [
+            ("", 400, "no_target"),
+            ("dev_NOPE1234", 400, "bad_target"),
+            ("not-a-device", 400, "bad_target"),
+        ],
+    )
+    def test_bad_targets(self, client, targets, status, error):
+        resp = send(client, targets)
+        assert resp.status_code == status
+        assert resp.json()["detail"]["error"] == error
+
+    def test_too_many_targets(self, client, monkeypatch):
+        monkeypatch.setattr(config, "MAX_TARGETS_PER_SEND", 2)
+        targets = [register(client, f"设备{i}") for i in range(3)]
+
+        resp = send(client, [d["id"] for d in targets])
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "too_many_targets"
+
+    def test_invalid_ttl_rejected(self, client):
+        receiver = register(client)
+        resp = send(client, [receiver["id"]], ttl="不是时长")
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "bad_ttl"
+
+    def test_oversize_leaves_no_transfer(self, client):
+        receiver = register(client)
+        resp = send(client, [receiver["id"]], b"0" * (config.MAX_UPLOAD_BYTES + 1024))
+
+        assert resp.status_code == 413
+        assert inbox(client, receiver)["count"] == 0
+        assert db.stats()["transfers"] == 0
+
+
+class TestInbox:
+    def test_only_own_files_visible(self, client):
+        sender, alice, bob = register(client, "发送方"), register(client, "Alice"), register(client, "Bob")
+        send(client, [alice["id"]], b"for-alice", "alice.txt", token=sender["token"], from_device_id=sender["id"])
+        send(client, [bob["id"]], b"for-bob", "bob.txt", token=sender["token"], from_device_id=sender["id"])
+
+        assert [i["filename"] for i in inbox(client, alice)["items"]] == ["alice.txt"]
+        assert [i["filename"] for i in inbox(client, bob)["items"]] == ["bob.txt"]
+
+    def test_item_fields(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        send(client, [receiver["id"]], b"12345", "材料.pdf", "2h", token=sender["token"],
+             from_device_id=sender["id"], note="备注")
+
+        item = inbox(client, receiver)["items"][0]
+        assert item["filename"] == "材料.pdf"
+        assert item["size"] == 5
+        assert item["from_name"] == "发送方"
+        assert item["from_device_id"] == sender["id"]
+        assert item["note"] == "备注"
+        assert 7100 <= item["seconds_left"] <= 7200
+        assert item["expired"] is False
+        assert item["download_url"].endswith(f"/api/download/{item['code']}")
+        assert item["share_url"].endswith(f"/?code={item['code']}")
+        assert item["seen"] is False
+
+    def test_ordered_newest_first(self, client):
+        receiver = register(client, "收件方")
+        names = []
+        for i in range(3):
+            name = f"f{i}.txt"
+            names.append(name)
+            send(client, [receiver["id"]], f"data{i}".encode(), name)
+        assert [i["filename"] for i in inbox(client, receiver)["items"]] == list(reversed(names))
+
+    def test_mark_seen(self, client):
+        receiver = register(client, "收件方")
+        send(client, [receiver["id"]])
+
+        assert inbox(client, receiver)["unread"] == 1
+        assert client.post(f"/api/devices/{receiver['id']}/inbox/seen", headers=hdr(receiver["token"])).json() == {"marked": 1}
+        assert inbox(client, receiver)["unread"] == 0
+
+    def test_remove_item_keeps_file(self, client):
+        receiver = register(client, "收件方")
+        code = send(client, [receiver["id"]], b"kept").json()["code"]
+
+        resp = client.delete(f"/api/devices/{receiver['id']}/inbox/{code}", headers=hdr(receiver["token"]))
+        assert resp.status_code == 200
+        assert inbox(client, receiver)["count"] == 0
+        assert client.get(f"/api/download/{code}").content == b"kept"
+        # 再删一次 → 404
+        assert client.delete(f"/api/devices/{receiver['id']}/inbox/{code}", headers=hdr(receiver["token"])).status_code == 404
+
+    def test_inbox_touches_last_seen(self, client):
+        device = register(client)
+        age_device(device["id"], 5)
+        before = db.get_device(device["id"]).idle_seconds()
+        assert before > 4 * 86400
+
+        inbox(client, device)
+        assert db.get_device(device["id"]).idle_seconds() < 60
+
+
+class TestAuth:
+    @pytest.mark.parametrize("token,status,error", [(None, 403, "bad_device_token"), ("wrong", 403, "bad_device_token")])
+    def test_inbox_requires_token(self, client, token, status, error):
+        device = register(client)
+        resp = client.get(f"/api/devices/{device['id']}/inbox", headers=hdr(token))
+        assert resp.status_code == status
+        assert resp.json()["detail"]["error"] == error
+
+    def test_unknown_device(self, client):
+        resp = client.get("/api/devices/dev_ZZZZZZZZ/inbox", headers=hdr("x"))
+        assert resp.status_code == 404
+        assert resp.json()["detail"]["error"] == "device_not_found"
+
+    def test_cannot_read_other_inbox(self, client):
+        alice, bob = register(client, "Alice"), register(client, "Bob")
+        assert client.get(f"/api/devices/{alice['id']}/inbox", headers=hdr(bob["token"])).status_code == 403
+
+    def test_rename_requires_token(self, client):
+        device = register(client, "原名")
+        assert client.patch(f"/api/devices/{device['id']}", json={"name": "新名"}).status_code == 403
+
+        resp = client.patch(f"/api/devices/{device['id']}", json={"name": "  新名  "}, headers=hdr(device["token"]))
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "新名"
+        assert resp.json()["renamed"] is True
+
+    def test_unregister_requires_token_and_cascades(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        send(client, [receiver["id"]], token=sender["token"], from_device_id=sender["id"])
+
+        assert client.delete(f"/api/devices/{sender['id']}", headers=hdr(receiver["token"])).status_code == 403
+
+        assert client.delete(f"/api/devices/{sender['id']}", headers=hdr(sender["token"])).status_code == 200
+        assert db.get_device(sender["id"]) is None
+        assert db.stats()["devices"] == 1
+        assert inbox(client, receiver)["count"] == 1  # 收件方不受影响
+        assert client.get("/api/devices").json()["count"] == 1
+
+
+class TestExpiryAndPrune:
+    def test_expired_file_disappears_from_inbox(self, client, expire_now):
+        receiver = register(client, "收件方")
+        code = send(client, [receiver["id"]], b"temporary").json()["code"]
+        assert inbox(client, receiver)["count"] == 1
+
+        expire_now(code)
+        cleanup.purge_expired()
+
+        assert inbox(client, receiver)["count"] == 0
+        assert db.count_device_inbox(receiver["id"]) == 0   # 投递记录也被清掉，不留死条目
+        assert client.get(f"/api/download/{code}").status_code == 404
+
+    def test_purge_one_also_clears_transfers(self, client):
+        receiver = register(client, "收件方")
+        code = send(client, [receiver["id"]]).json()["code"]
+
+        client.delete(f"/api/files/{code}")
+        assert db.count_device_inbox(receiver["id"]) == 0
+        assert client.get("/api/stats").json()["transfers"] == 0
+
+    def test_prune_idle_devices(self, client):
+        active = register(client, "活跃设备")
+        stale = register(client, "闲置设备")
+        age_device(stale["id"], 40)
+
+        removed = cleanup.prune_idle_devices(days=config.DEVICE_IDLE_DAYS)
+
+        assert removed == [stale["id"]]
+        assert db.get_device(stale["id"]) is None
+        assert db.get_device(active["id"]) is not None
+
+    def test_prune_keeps_device_with_pending_files(self, client):
+        receiver = register(client, "有待取文件的设备")
+        send(client, [receiver["id"]], ttl="7d")
+        age_device(receiver["id"], 40)
+
+        assert cleanup.prune_idle_devices(days=30) == []
+        assert db.get_device(receiver["id"]) is not None
+        assert inbox(client, receiver)["count"] == 1
