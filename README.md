@@ -122,8 +122,15 @@ curl -H "X-Device-Token: <目标设备 token>" http://127.0.0.1:8000/api/devices
 
 ```bash
 .venv/bin/python -m pytest -q                 # 112 个用例：分享码取件 + 设备互传
-.venv/bin/python scripts/check_frontend.py    # 前端 DOM id / sprite / emoji 一致性
+.venv/bin/python scripts/check_frontend.py    # 静态检查：DOM id / sprite / emoji / 标签页→面板映射
+
+# 真 DOM 测试：用 jsdom 加载 index.html 并执行 app.js，模拟点击标签页与发送流程
+cd scripts && npm install && node dom_test.js
 ```
+
+> 只做静态检查会漏掉"标签页切过去但面板不显示"这类问题（`switchTab()` 是按 `els.panels`
+> 里的登记切换 `.active` 的，新增标签页忘了登记就整块 `display:none`）。
+> `check_frontend.py` 现在会校验每个 `data-panel` 都有登记，`dom_test.js` 则真点一遍。
 
 覆盖点：上传/下载字节与 SHA256 一致、大小写与 `-` 容错、404/400/410/413 分支、
 过期后文件与元数据都被删除、后台清理协程真跑一遍、路径穿越文件名被中和、
