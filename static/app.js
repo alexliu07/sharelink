@@ -56,6 +56,11 @@
     deviceExportBtn: $("device-export-btn"),
     deviceImportBtn: $("device-import-btn"),
     deviceImportFile: $("device-import-file"),
+    deviceCopyBtn: $("device-copy-btn"),
+    deviceTokenText: $("device-token-text"),
+    deviceImportText: $("device-import-text"),
+    deviceImportApplyBtn: $("device-import-apply-btn"),
+    deviceImportClipBtn: $("device-import-clip-btn"),
     selfName: $("self-name"),
     selfMeta: $("self-meta"),
     deviceNameInput: $("device-name-input"),
@@ -472,11 +477,22 @@
     if (has) {
       els.selfName.textContent = myDevice.name;
       els.selfMeta.textContent = `设备 id ${myDevice.id} · 令牌只存在本浏览器`;
+      els.deviceTokenText.value = deviceTokenJson();       // 直接把令牌摆出来，不用先"导出"再找文件
     } else {
       els.inboxList.innerHTML = "";
       els.inboxCount.textContent = "";
+      if (els.deviceTokenText) els.deviceTokenText.value = "";
       setBadge(0);
     }
+  }
+
+  /** 令牌的备份文本：字段名与手机 App、导入逻辑约定一致。 */
+  function deviceTokenJson() {
+    if (!myDevice) return "";
+    return JSON.stringify(
+      { sharelink_device: 1, id: myDevice.id, name: myDevice.name, token: myDevice.token },
+      null, 2,
+    );
   }
 
   /* ---------- 设备列表 ---------- */
@@ -783,11 +799,39 @@
   });
   renderInstallCard();
 
-  /* ---------- 设备令牌备份 / 恢复 ---------- */
+  /* ---------- 设备令牌备份 / 恢复 ----------
+     手机上"下载一个 .json 再挑回来"经常不好用（安卓 Chrome 的 blob 下载会静默失败，
+     不少国产 ROM 的文件选择器还按类型过滤、压根不显示 .json），所以主路径改成复制/粘贴文本，
+     存文件和选文件只作为备用。 */
+  async function copyTokenToClipboard() {
+    const text = deviceTokenJson();
+    if (!text) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("这个浏览器不给写剪贴板");
+      await navigator.clipboard.writeText(text);
+      showNotice("令牌已复制到剪贴板 —— 它就是凭证，别发给别人。", "ok");
+    } catch (_) {
+      // 老环境（非安全上下文 / 旧浏览器）：退回"选中 + execCommand"
+      const area = els.deviceTokenText;
+      const previous = document.activeElement;
+      area.removeAttribute("readonly");
+      area.focus();
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+      let done = false;
+      try { done = document.execCommand("copy"); } catch (_) { done = false; }
+      area.setAttribute("readonly", "readonly");
+      if (previous && previous.focus) previous.focus();
+      showNotice(done ? "令牌已复制到剪贴板 —— 它就是凭证，别发给别人。"
+        : "复制不了：请长按上面的框手动全选复制。", done ? "ok" : undefined);
+    }
+  }
+
+  els.deviceCopyBtn.addEventListener("click", () => { if (myDevice) copyTokenToClipboard(); });
+
   els.deviceExportBtn.addEventListener("click", () => {
     if (!myDevice) return;
-    const payload = { sharelink_device: 1, id: myDevice.id, name: myDevice.name, token: myDevice.token };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const blob = new Blob([deviceTokenJson()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -796,7 +840,53 @@
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    showNotice("令牌已导出到下载的文件里 —— 它就是凭证，别发给别人。", "ok");
+    showNotice("已存成文件 —— 它就是凭证，别发给别人。", "ok");
+  });
+
+  /** 导入令牌：解析 → 先用它读一次收件箱验证有效 → 才落盘（避免把错的令牌存下来）。 */
+  async function applyTokenText(raw) {
+    const text = String(raw || "").trim();
+    if (!text) throw new Error("先粘贴令牌 JSON，或点「读取剪贴板」");
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      throw new Error("这不是合法的 JSON");
+    }
+    const id = String(data.id || data.device_id || "").trim();
+    const token = String(data.token || data.device_token || "").trim();
+    if (!id || !token) throw new Error("JSON 里没有 id / token");
+    const inbox = await apiJson(`/api/devices/${encodeURIComponent(id)}/inbox`, {
+      headers: { "X-Device-Token": token },
+    });
+    saveMyDevice({ id, token, name: inbox.device?.name || data.name || "已恢复设备" });
+    renderInbox(inbox);
+    setBadge(inbox.unread || 0);
+    await loadDevices();
+    els.deviceImportText.value = "";
+    showNotice(`已恢复设备「${myDevice.name}」，收件箱 ${inbox.count} 个文件。`, "ok");
+  }
+
+  async function importFromText(raw) {
+    try {
+      await applyTokenText(raw);
+    } catch (error) {
+      showNotice(`导入失败：${error.message}`);
+    }
+  }
+
+  els.deviceImportApplyBtn.addEventListener("click", () => importFromText(els.deviceImportText.value));
+
+  els.deviceImportClipBtn.addEventListener("click", async () => {
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("这个浏览器不给读剪贴板");
+      const text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) throw new Error("剪贴板是空的");
+      els.deviceImportText.value = text.trim();
+      await applyTokenText(text);
+    } catch (error) {
+      showNotice(`读取剪贴板失败：${error.message}。把 JSON 粘贴到上面的框里再点「导入令牌」也一样。`);
+    }
   });
 
   els.deviceImportBtn.addEventListener("click", () => els.deviceImportFile.click());
@@ -804,21 +894,7 @@
     const picked = els.deviceImportFile.files?.[0];
     if (!picked) return;
     try {
-      const data = JSON.parse(await picked.text());
-      const id = String(data.id || data.device_id || "").trim();
-      const token = String(data.token || data.device_token || "").trim();
-      if (!id || !token) throw new Error("文件里没有 id / token");
-      // 先用这个令牌读一次收件箱，通了才认（避免把错的令牌存下来）
-      const inbox = await apiJson(`/api/devices/${encodeURIComponent(id)}/inbox`, {
-        headers: { "X-Device-Token": token },
-      });
-      saveMyDevice({ id, token, name: inbox.device?.name || data.name || "已恢复设备" });
-      renderInbox(inbox);
-      setBadge(inbox.unread || 0);
-      await loadDevices();
-      showNotice(`已恢复设备「${myDevice.name}」，收件箱 ${inbox.count} 个文件。`, "ok");
-    } catch (error) {
-      showNotice(`导入失败：${error.message}`);
+      await importFromText(await picked.text());
     } finally {
       els.deviceImportFile.value = "";
     }

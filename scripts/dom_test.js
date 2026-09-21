@@ -316,6 +316,75 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
   });
 
+  console.log("== 令牌：复制 / 粘贴 / 读剪贴板（不依赖文件那条路） ==");
+  const clipboard = { written: "", read: "" };
+  Object.defineProperty(window.navigator, "clipboard", {
+    value: {
+      writeText: async (text) => { clipboard.written = text; },
+      readText: async () => clipboard.read,
+    },
+    configurable: true,
+  });
+
+  // 先把设备换成"原设备"，验证复制出来的就是它的令牌
+  $("#device-import-text").value = JSON.stringify({ id: "dev_AAAABBBB", token: "tok_secret_value" });
+  $("#device-import-apply-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("粘贴导入：校验收件箱后落盘并刷新界面", () => {
+    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
+    assert.strictEqual(saved.id, "dev_AAAABBBB");
+    assert.strictEqual(saved.token, "tok_secret_value");
+    assert.ok($("#notice").textContent.includes("已恢复设备"), $("#notice").textContent);
+    assert.strictEqual($("#device-import-text").value, "", "导入后应清空粘贴框");
+  });
+
+  $("#device-import-text").value = JSON.stringify({ id: "dev_ZZZZ9999", token: "token-wrong" });
+  $("#device-import-apply-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("粘贴导入错误令牌：拒绝且不覆盖当前设备", () => {
+    assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
+    assert.strictEqual(JSON.parse(window.localStorage.getItem("sharelink.device")).id, "dev_AAAABBBB");
+  });
+
+  $("#device-import-text").value = "随便写点非 JSON";
+  $("#device-import-apply-btn").click();
+  await new Promise((r) => setTimeout(r, 20));
+  check("粘贴非 JSON：明确报错", () => {
+    assert.ok($("#notice").textContent.includes("不是合法的 JSON"), $("#notice").textContent);
+  });
+
+  check("令牌框里直接就摆着可复制的 JSON（不用先导出文件）", () => {
+    const payload = JSON.parse($("#device-token-text").value);
+    assert.strictEqual(payload.sharelink_device, 1);
+    assert.strictEqual(payload.id, "dev_AAAABBBB");
+    assert.strictEqual(payload.token, "tok_secret_value");
+  });
+
+  $("#device-copy-btn").click();
+  await new Promise((r) => setTimeout(r, 20));
+  check("复制令牌：写进剪贴板的就是可恢复的 JSON", () => {
+    const payload = JSON.parse(clipboard.written);
+    assert.strictEqual(payload.id, "dev_AAAABBBB");
+    assert.strictEqual(payload.token, "tok_secret_value");
+    assert.ok($("#notice").textContent.includes("已复制到剪贴板"), $("#notice").textContent);
+  });
+
+  clipboard.read = JSON.stringify({ id: "dev_ZZZZ9999", token: "tok_restored" });
+  $("#device-import-clip-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("读取剪贴板导入：认领同一台设备", () => {
+    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
+    assert.strictEqual(saved.id, "dev_ZZZZ9999");
+    assert.strictEqual(saved.name, "旧手机");
+  });
+
+  clipboard.read = "   ";
+  $("#device-import-clip-btn").click();
+  await new Promise((r) => setTimeout(r, 20));
+  check("剪贴板为空：给出可操作的提示", () => {
+    assert.ok($("#notice").textContent.includes("剪贴板"), $("#notice").textContent);
+  });
+
   window.close();
   console.log(`\n结果：${passed} 项通过${process.exitCode ? "，有失败" : "，全部通过"}`);
 })();

@@ -412,17 +412,33 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .install-card .primary.inline { flex: 0 0 auto; align-self: center; }
 
 /* --------- 设备令牌备份/恢复 --------- */
-.backup-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-  padding-top: 10px;
+.token-box {
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid rgba(120, 140, 255, .14);
 }
-.backup-row .muted { flex: 1 1 200px; font-size: 12.5px; }
-.backup-row .ghost { display: inline-flex; align-items: center; gap: 6px; }
+.token-box .section-title { margin-bottom: 4px; }
+.token-box .hint { display: block; margin: 6px 0; }
+.token-box label.hint { margin-top: 12px; }
+
+.token-text {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: rgba(11, 16, 32, .72);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  word-break: break-all;
+}
+.token-text:focus { outline: none; border-color: var(--accent); }
+.token-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.token-actions button { display: inline-flex; align-items: center; gap: 6px; }
 
 .hidden { display: none !important; }
 
