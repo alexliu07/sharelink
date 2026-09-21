@@ -895,6 +895,16 @@ public class MainActivity extends Activity {
         view.setAllCaps(false);
         view.setTextColor(primary ? BG : FG);
         view.setBackground(rounded(primary ? ACCENT : CARD_SOFT, 12));
+        // 内边距自己给：换成自定义背景后系统 9-patch 自带的那点留白就没了，
+        // 而各 ROM 默认的按钮内边距差别很大（有的几乎让文字贴着边框）。
+        view.setPadding(dp(18), dp(11), dp(18), dp(11));
+        view.setMinHeight(dp(46));
+        view.setMinimumWidth(0);           // 短标签也别被系统最小宽度撑得怪
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = dp(10);       // 同一行里按钮之间留缝
+        params.bottomMargin = dp(6);
+        view.setLayoutParams(params);
         return view;
     }
 

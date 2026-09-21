@@ -6,8 +6,9 @@
       <stop offset="1" stop-color="#38d9c0"/>
     </linearGradient>
   </defs>
-  <!-- 与 static/icons/app-icon.svg 同一套字形（64 网格），缩到画布的 ~59% 以落在自适应图标的安全区内 -->
-  <g transform="translate(54 54) scale(0.2) translate(-256 -256)"
+  <!-- 与 static/icons/app-icon.svg 同一套字形（512 网格），缩到画布的 ~47%
+       （自适应图标画布 108dp、安全区是中间 72dp；放太大时在圆/圆角遮罩里会显得标志顶到图标边缘） -->
+  <g transform="translate(54 54) scale(0.16) translate(-256 -256)"
      fill="none" stroke="url(#fg-grad)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
     <path d="M216 172h-36a84 84 0 0 0 0 168h36"/>
     <path d="M296 172h36a84 84 0 0 1 0 168h-36"/>
