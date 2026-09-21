@@ -954,6 +954,9 @@ public class MainActivity extends Activity {
     private LinearLayout row() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.HORIZONTAL);
+        // 不要按文字基线对齐（标题旁放高大按钮时会错位），改成行内元素垂直居中
+        layout.setBaselineAligned(false);
+        layout.setGravity(android.view.Gravity.CENTER_VERTICAL);
         return layout;
     }
 
