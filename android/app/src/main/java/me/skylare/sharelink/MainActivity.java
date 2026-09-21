@@ -51,6 +51,8 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "sharelink";
     private static final String KEY_DEVICE = "device";
+    private static final String KEY_TTL = "ttl_seconds";
+    private static final long DEFAULT_TTL_SECONDS = 3600L;   // 与服务端 SHARELINK_DEFAULT_TTL_SECONDS 一致
     private static final int REQ_PICK_FILE = 1001;
     private static final long MAX_UPLOAD_BYTES = 95L * 1024 * 1024;   // 与服务端 SHARELINK_MAX_UPLOAD_MB 对齐
 
@@ -65,6 +67,7 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private JSONObject device;        // 本机设备身份：{id, token, name}
+    private long ttlSeconds = DEFAULT_TTL_SECONDS;   // 上传有效期（记在本地，跟网页版同一套档位）
 
     private LinearLayout box;         // 当前屏幕的容器（换屏 = 清空重填）
     private ProgressBar progress;
@@ -80,6 +83,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        ttlSeconds = prefs.getLong(KEY_TTL, DEFAULT_TTL_SECONDS);
         loadDevice();
         setContentView(buildShell());
         Intent intent = getIntent();
@@ -248,6 +252,8 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 List<Api.Part> fields = new ArrayList<>();
+                // 有效期：服务端优先看 ttl_seconds，两条路（分享面板 / 投递给设备）都带上
+                fields.add(new Api.Part("ttl_seconds", String.valueOf(ttlSeconds)));
                 String url;
                 if (targets == null) {
                     url = Api.URL_SHARE_TARGET;
@@ -307,7 +313,9 @@ public class MainActivity extends Activity {
         big.setLetterSpacing(0.12f);
         big.setTextIsSelectable(true);
         card.addView(big);
-        card.addView(line(Api.humanSize(json.optLong("size")) + " · " + json.optString("filename"), MUTED, 13));
+        card.addView(line(Api.humanSize(json.optLong("size")) + " · " + json.optString("filename")
+                + (json.optString("ttl_human").isEmpty() ? "" : " · 有效期 " + json.optString("ttl_human")),
+                MUTED, 13));
         card.addView(line(shortUrl(shareUrl), MUTED, 12));
         content.addView(withTop(card, 10));
 
@@ -371,9 +379,11 @@ public class MainActivity extends Activity {
         content.addView(title("ShareLink"));
         if (device == null) {
             content.addView(registerSection());
+            content.addView(withTop(ttlCard(), 14));
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
+            content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(actionsCard(), 14));
         }
         show(content);
@@ -470,8 +480,17 @@ public class MainActivity extends Activity {
     private View inboxCard() {
         LinearLayout card = card();
         LinearLayout header = row();
-        header.addView(line("收件箱", FG, 16));
+        TextView head = line("收件箱", FG, 16);
+        // 标题占满左侧、按钮贴右边：两者之间自然留出间距，也不会被挤到一起
+        head.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(head);
         Button seen = button("全部标记已读", false);
+        seen.setSingleLine(true);                       // 再窄也不折成两行（宁可省略号）
+        seen.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        LinearLayout.LayoutParams seenParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        seenParams.leftMargin = dp(12);                 // 标题与按钮之间留缝
+        seen.setLayoutParams(seenParams);
         seen.setOnClickListener(v -> markSeen());
         header.addView(seen);
         card.addView(header);
@@ -479,6 +498,70 @@ public class MainActivity extends Activity {
         inboxList.setOrientation(LinearLayout.VERTICAL);
         card.addView(withTop(inboxList, 10));
         return card;
+    }
+
+    /** 上传有效期：与服务端 / 网页版一致的五档预设（分享面板上传的文件也用这里选的值）。 */
+    private View ttlCard() {
+        LinearLayout card = card();
+        card.addView(line("上传有效期", FG, 16));
+        card.addView(withTop(line("到期后服务器自动删除，不可恢复。分享面板里上传的文件也用这里选的值。",
+                MUTED, 13), 8));
+        card.addView(withTop(ttlChips(), 12));
+        return card;
+    }
+
+    private View ttlChips() {
+        final long[] presets = {600L, 3600L, 86400L, 604800L, 2592000L};
+        final String[] labels = {"10 分钟", "1 小时", "1 天", "7 天", "30 天"};
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = row();
+        LinearLayout second = row();
+        for (int i = 0; i < presets.length; i++) {
+            final long seconds = presets[i];
+            Button chip = chip(labels[i], seconds);
+            chip.setOnClickListener(v -> {
+                ttlSeconds = seconds;
+                prefs.edit().putLong(KEY_TTL, seconds).apply();
+                refreshTtlChips(wrap);
+            });
+            (i < 3 ? first : second).addView(chip);
+        }
+        wrap.addView(first);
+        wrap.addView(withTop(second, 8));
+        refreshTtlChips(wrap);
+        return wrap;
+    }
+
+    private Button chip(String text, long seconds) {
+        Button view = button(text, false);
+        view.setTag(seconds);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        view.setPadding(dp(12), dp(7), dp(12), dp(7));
+        view.setMinHeight(dp(36));
+        view.setSingleLine(true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = dp(8);
+        view.setLayoutParams(params);
+        return view;
+    }
+
+    /** 把这一组有效期小按钮里被选中的那个点亮。 */
+    private void refreshTtlChips(View group) {
+        if (!(group instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) group;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View child = parent.getChildAt(i);
+            if (child instanceof Button && child.getTag() instanceof Long) {
+                boolean active = ((Long) child.getTag()) == ttlSeconds;
+                child.setBackground(rounded(active ? ACCENT : CARD_SOFT, 10));
+                ((Button) child).setTextColor(active ? BG : FG);
+            }
+            refreshTtlChips(child);
+        }
     }
 
     private View actionsCard() {

@@ -475,7 +475,7 @@ async def android_share_target(request: Request):
             logger.info("分享面板一次送了 %d 个文件，只取第一个：%s", len(uploads), uploads[0].filename)
         for extra in uploads[1:]:
             await extra.close()
-        record, _ = _save_and_record(uploads[0], raw_ttl)
+        record, seconds = _save_and_record(uploads[0], raw_ttl)
     else:
         body = text.strip() or title.strip()
         if not body:
@@ -484,15 +484,17 @@ async def android_share_target(request: Request):
             return RedirectResponse(f"{_page_url(request)}?share=empty", status_code=303)
         stem = storage.safe_original_name(title).strip() if title.strip() else ""  # 空标题会得到"未命名文件"
         name = f"{stem}.txt" if stem else "分享文本.txt"
-        record, _ = _store(io.BytesIO(text.strip().encode("utf-8") or body.encode("utf-8")),
-                           name, "text/plain; charset=utf-8", raw_ttl)
+        record, seconds = _store(io.BytesIO(text.strip().encode("utf-8") or body.encode("utf-8")),
+                                 name, "text/plain; charset=utf-8", raw_ttl)
 
     logger.info("分享面板收到 %s（%d 字节，%s）→ 分享码 %s",
                 record.original_name, record.size, record.content_type, record.code)
     if _wants_json(request):
         return JSONResponse({**_share_urls(request, record.code), "code": record.code,
                              "filename": record.original_name, "size": record.size,
-                             "sha256": record.sha256, "expires_at": record.expires_at})
+                             "sha256": record.sha256, "expires_at": record.expires_at,
+                             "ttl_seconds": seconds,
+                             "ttl_human": codes.humanize_seconds(seconds)})
     return RedirectResponse(f"{_share_urls(request, record.code)['share_url']}&share=ok", status_code=303)
 
 

@@ -11,6 +11,8 @@
 - 把第一个文件（或分享的文字/链接）以 `multipart/form-data` POST 到 `https://skylare.me/share/api/share-target?response=json`
 - 拿到 JSON 后显示**分享码**（自动复制到剪贴板）＋落地页链接，可一键打开或转发给别人
 - 从桌面图标点开则显示说明页；上传失败（超限、断网、服务端报错）会显示服务端返回的原因并给「重试」
+- **上传有效期**可自己选（主页「上传有效期」卡片：10 分钟 / 1 小时 / 1 天 / 7 天 / 30 天，与网页版同一套档位），
+  选择记在本地；分享面板里上传的文件也用这个值（上传时带 `ttl_seconds`，结果页和收件箱都显示到期时间）
 
 ## 设计与实现要点
 
@@ -19,6 +21,11 @@
   拿不到才退回 chunked，避免经 Cloudflare 时出幺蛾子
 - **文件名清洗**：multipart header 里不能有引号/换行，截断到 180 字符；UTF-8 原名（含中文）能正常传到服务端
 - **端点是绝对 URL**，并且带 `?response=json`，所以拿到的是 JSON 而不是浏览器用的 303 跳转
+- **按钮/图标留白自己兜住**：换成自定义背景后系统按钮那层 9-patch 的内边距就没了，
+  而各 ROM 默认内边距差别很大（有的让文字贴着边框）→ 统一在 `button()` 里给 18×11dp 内边距、46dp 最小高度、
+  行内 10dp 右边距；标题行用 `layout_weight=1` 把按钮顶到右边（标题与按钮之间就有间距），
+  长标签设 `setSingleLine(true)` 免得折成两行。自适应图标前景只占画布 47%（安全区是中间 72/108），
+  太大在圆/圆角遮罩里看着像标志顶到边
 - 图标与网页端同源：`mipmap-*/ic_launcher.png` 由 `static/favicon.svg` 渲染，
   自适应图标前景层来自 `icons/ic_launcher_foreground.svg`，都用 `tools/render-icons.py` 生成（安卓不认 SVG）
 
