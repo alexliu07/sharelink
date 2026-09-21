@@ -1,0 +1,91 @@
+name: Android APK
+
+# 只有动到 android/ 或这个工作流本身才构建，别把 Python 侧的提交也拖进来
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # 需要它来创建 Release、以及首次生成签名后提交回仓库
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 固定签名文件：仓库里存一张调试 keystore（密码就是安卓调试签名公开的 "android"），
+      # 这样每次装新版本都是「升级」，不会因为签名变了要求先卸载。
+      # 首次运行时生成并提交回仓库（带 [skip ci] 免得又触发一轮构建）。
+      - name: 准备签名
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f android/keystore/debug.keystore ]; then
+            mkdir -p android/keystore
+            keytool -genkeypair -keystore android/keystore/debug.keystore \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add android/keystore/debug.keystore
+            git commit -m "ci(android): 生成固定的调试签名文件 [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}" \
+              && echo "签名已提交回仓库" \
+              || echo "::warning::签名没能提交回仓库，下次构建会重新生成（装新版本前要先卸载）"
+          fi
+          cp android/keystore/debug.keystore "$HOME/.android/debug.keystore"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装 SDK 组件
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: 构建 APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace assembleRelease
+
+      - name: 收集产物与校验值
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/ShareLink.apk
+          cd dist
+          sha256sum ShareLink.apk | tee ShareLink.apk.sha256
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShareLink-apk
+          path: dist/ShareLink.apk
+
+      - name: 发布到 Release（方便直接下载安装）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: "ShareLink 安卓小工具（最新构建）"
+          body: |
+            把文件或链接「分享」给 ShareLink 的安卓小工具：安装后在任意应用里点分享 → 选 ShareLink，
+            文件就会上传到自建服务并在应用里显示分享码。
+
+            安装：下载 `ShareLink.apk`，允许「未知来源」安装（个人自用，未上架应用商店）。
+          files: |
+            dist/ShareLink.apk
+            dist/ShareLink.apk.sha256

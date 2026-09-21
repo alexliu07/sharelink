@@ -153,14 +153,27 @@ curl -H "X-Device-Token: <目标设备 token>" http://127.0.0.1:8000/api/devices
    自查：安卓 Chrome 打开 `chrome://webapks`，列表里应该能看到本应用；如果不在，说明装成了「网页快捷方式」，
    那种安装方式永远不会出现在分享面板里（国内网络下 WebAPK 生成失败就会退化）。
 
-**分享面板在国产 ROM 上常常装不出来**：Chrome 生成 WebAPK 需要连 Google 的服务器，失败时会静默退化成「网页快捷方式」，
-而快捷方式永远不会注册成分享目标（安卓 Chrome 打开 `chrome://webapks`，列表里没有本应用就属于这种）。
-这时分享面板这条路只能交给第三方分享 App，服务端已按这个场景做了兼容：
+## 安卓分享面板：WebAPK 装不出来时怎么办
 
-- `/api/share-target` 收 **任意字段名** 的文件部分（各家 multipart 的 part 名不一样：`file`/`myfile`/`files[]`…），
-  文本认 `title`/`text`/`url`，有效期认 `ttl`/`ttl_seconds`
-- 浏览器（Accept 含 `text/html`）拿 **303 跳转**回落地页；第三方 App 传 `?response=json`
-  （或 Accept 里不带 html/通配）拿 **200 JSON**：`{"code","share_url","download_url","filename","size","sha256","expires_at"}`
+PWA 自带的 `share_target` 只在应用以 **WebAPK** 形式安装后才生效，而 WebAPK 的生成要连 Google 的服务器。
+国产 ROM／没有 Google 服务的机器上，Chrome 会**静默退化成「网页快捷方式」**，快捷方式永远不会注册成分享目标
+（自查：安卓 Chrome 打开 `chrome://webapks`，列表里没有本应用就是这种情况）。这条路走不通时有两个替代：
+
+**1. 本仓库自带的原生小工具 `android/`（推荐）**：几十 KB、零第三方依赖，装完就出现在系统分享面板里，
+分享文件和链接都会上传并显示分享码（自动复制到剪贴板）。
+
+```
+https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLink.apk
+```
+
+允许「未知来源」安装即可；细节和构建方式见 `android/README.md`。
+服务端不需要为它做任何特殊配置——它用的就是同一个 `/api/share-target`。
+
+**2. 第三方分享 App**：服务端也按它们的用法做了兼容——
+`/api/share-target` 收 **任意字段名** 的文件部分（各家 multipart 的 part 名不一样：`file`/`myfile`/`files[]`…），
+文本认 `title`/`text`/`url`，有效期认 `ttl`/`ttl_seconds`；浏览器（Accept 含 `text/html`）拿 **303 跳转**回落地页，
+第三方 App 传 `?response=json`（或 Accept 里不带 html/通配）拿 **200 JSON**：
+`{"code","share_url","download_url","filename","size","sha256","expires_at"}`。
 
 Hupl（F-Droid `eu.imouto.hupl`，或 GitHub Releases 装 APK）里新建 uploader：
 
@@ -174,7 +187,7 @@ Hupl（F-Droid `eu.imouto.hupl`，或 GitHub Releases 装 APK）里新建 upload
 }
 ```
 
-装完它就会出现在系统分享面板里，分享文件后会把 `share_url`（带分享码的落地页）显示/复制出来。
+装完它也会出现在系统分享面板里，分享文件后会把 `share_url`（带分享码的落地页）显示/复制出来。
 另一个更省事的选择是 MyShare（F-Droid `net.chlup.myshare`），它只要填一个服务器 URL。
 
 重新生成图标（改了 SVG 之后）：

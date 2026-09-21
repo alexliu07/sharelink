@@ -22,3 +22,10 @@ data/
 # 前端测试依赖（scripts/package.json 里声明，用 npm install 装回来即可）
 node_modules/
 scripts/package-lock.json
+
+# 安卓（android/）构建产物；keystore/ 要提交（签名固定），其余不要
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/

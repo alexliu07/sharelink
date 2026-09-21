@@ -1,0 +1,9 @@
+<resources>
+    <!-- 用系统主题打底，避免引入 AppCompat/Material 依赖 -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+</resources>

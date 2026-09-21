@@ -1,0 +1,6 @@
+<resources>
+    <color name="bg">#0B1020</color>
+    <color name="accent">#6C8CFF</color>
+    <!-- 自适应图标的背景层：与网页端图标一致的白底 -->
+    <color name="icon_bg">#FFFFFF</color>
+</resources>
