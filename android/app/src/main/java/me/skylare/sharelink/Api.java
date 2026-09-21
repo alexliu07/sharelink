@@ -29,7 +29,7 @@ final class Api {
     static final String URL_SHARE_TARGET = BASE + "/api/share-target?response=json";
     static final String URL_DEVICES = BASE + "/api/devices";
     static final String URL_TRANSFERS = BASE + "/api/transfers";
-    static final String UA = "ShareLink-Android/1.8";
+    static final String UA = "ShareLink-Android/1.9";
 
     private Api() {
     }
@@ -182,12 +182,17 @@ final class Api {
             fileHead = bytes("--" + boundary + "\r\n"
                     + "Content-Disposition: form-data; name=\"file\"; filename=\"" + name + "\"\r\n"
                     + "Content-Type: " + type + "\r\n\r\n");
+            // 文件字节后面必须先补一个 CRLF，下一段边界才合法（RFC 2046 的分隔符是 CRLF--boundary）。
+            // 少了它服务端会把后面的字段块当成**文件内容**：ttl_seconds / title 等字段全丢
+            // （有效期回落到默认值、落盘文件还多出几百字节垃圾）。
+            // 纯文字分享没这个问题——那时各字段尾部的 CRLF 正好充当下一段的前导 CRLF。
+            post.write(bytes("\r\n"));
             for (Part part : fields) {
                 if (part.value != null && !part.value.isEmpty()) {
                     post.write(field(boundary, part.name, part.value));
                 }
             }
-            post.write(bytes("\r\n--" + boundary + "--\r\n"));
+            post.write(bytes("--" + boundary + "--\r\n"));
         } else {
             for (Part part : fields) {
                 if (part.value != null && !part.value.isEmpty()) {
