@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -152,6 +152,21 @@
         <button class="ghost" id="send-btn" disabled title="直接发给设备列表里的设备"><svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>发送至设备</button>
       </div>
 
+      <div class="divider"><span>或者，直接发一段文本</span></div>
+
+      <div class="field">
+        <label for="text-input">文本内容</label>
+        <textarea id="text-input" class="text-input" rows="5" maxlength="10000" spellcheck="false"
+                  placeholder="粘贴或输入要发送的文字…"></textarea>
+        <p class="hint"><span id="text-count">0</span> / <span id="text-limit">10000</span> 字符 · 首行会当文件名，
+          有效期用上面的设置，到期同样自动删除。</p>
+      </div>
+
+      <div class="btn-row">
+        <button class="primary" id="text-upload-btn" disabled>生成分享码</button>
+        <button class="ghost" id="text-send-btn" disabled title="直接把这段文本发给设备列表里的设备"><svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>发送至设备</button>
+      </div>
+
       <div class="progress hidden" id="progress">
         <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
         <span id="progress-text">0%</span>
@@ -169,6 +184,7 @@
         </div>
         <ul class="result-meta">
           <li>文件名：<span id="r-name">—</span></li>
+          <li id="r-kind-row" class="hidden">类型：<span id="r-kind">—</span></li>
           <li>大小：<span id="r-size">—</span></li>
           <li>过期时间：<span id="r-expire">—</span>（剩余 <span id="r-left">—</span>）</li>
           <li>文件校验码：<span class="mono" id="r-sha">—</span></li>
@@ -199,6 +215,14 @@
           <span class="muted"><span id="f-size">—</span> · 剩余 <span id="f-left">—</span></span>
         </div>
         <a class="primary inline" id="download-btn" href="#" download>下载</a>
+      </div>
+
+      <div class="text-view hidden" id="text-view">
+        <div class="section-head">
+          <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg>文本内容 <span class="muted" id="text-view-meta"></span></h3>
+          <button class="ghost" id="copy-text-btn"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>复制文本</button>
+        </div>
+        <pre class="text-body" id="text-body"></pre>
       </div>
     </section>
 
@@ -329,6 +353,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

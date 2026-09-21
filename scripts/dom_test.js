@@ -27,7 +27,7 @@ const DEVICES = [
 ];
 const INBOX = {
   device: { id: "dev_AAAABBBB", name: "我的笔记本", created_at: nowIso, last_seen_at: nowIso, idle_seconds: 3 },
-  count: 1, unread: 1,
+  count: 2, unread: 1,
   items: [{
     code: "AB3D7K9M", filename: "周会材料.pdf", size: 1536, sha256: "x", content_type: "application/pdf",
     created_at: nowIso, expires_at: evtIso, seconds_left: 600, download_count: 0,
@@ -35,16 +35,33 @@ const INBOX = {
     sent_at: nowIso, seen: false,
     share_url: "http://localhost/share/?code=AB3D7K9M",
     download_url: "http://localhost/share/api/download/AB3D7K9M",
+  }, {
+    code: "TXT12345", filename: "会议要点.txt", size: 42, sha256: "y",
+    content_type: "text/plain; charset=utf-8",
+    created_at: nowIso, expires_at: evtIso, seconds_left: 600, download_count: 0,
+    transfer_id: 2, from_device_id: "dev_CCCCDDDD", from_name: "室友的 iPad", note: "",
+    sent_at: nowIso, seen: false, is_text: true,
+    share_url: "http://localhost/share/?code=TXT12345",
+    download_url: "http://localhost/share/api/download/TXT12345",
   }],
 };
 const routes = {
   "GET /api/stats": [200, { shares: 3, shares_bytes: 2048, devices: 2, transfers: 1, disk_files: 3, disk_bytes: 2048,
-    max_upload_mb: 200, default_ttl_seconds: 3600, min_ttl_seconds: 60, max_ttl_seconds: 2592000,
+    max_upload_mb: 200, max_text_chars: 10000, default_ttl_seconds: 3600, min_ttl_seconds: 60, max_ttl_seconds: 2592000,
     cleanup_interval_seconds: 60, device_idle_days: 30, max_targets_per_send: 20 }],
   "GET /api/devices": [200, { count: DEVICES.length, devices: DEVICES }],
   "POST /api/devices": [201, { id: "dev_AAAABBBB", name: "我的笔记本", created_at: nowIso, last_seen_at: nowIso,
     idle_seconds: 0, inbox_count: 0, token: "tok_secret_value" }],
   "GET /api/devices/dev_AAAABBBB/inbox": [200, INBOX],
+  "POST /api/texts": [201, { code: "TX99TX99", filename: "第一行标题.txt", size: 42, chars: 12, sha256: "y",
+    content_type: "text/plain; charset=utf-8", created_at: nowIso, expires_at: evtIso, seconds_left: 600,
+    expired: false, download_count: 0, is_text: true, ttl_seconds: 600, ttl_human: "10 分钟",
+    share_url: "http://localhost/share/?code=TX99TX99", download_url: "http://localhost/share/api/download/TX99TX99",
+    from_name: "我的笔记本", targets: [{ id: "dev_AAAABBBB", name: "我的笔记本" }], transfer_count: 1 }],
+  "GET /api/download/TXT12345": [200, ""],        // 文本下载：正文走 TEXT_ROUTES 的 .text()
+  "GET /api/files/TXT12345": [200, { code: "TXT12345", filename: "取件文本.txt", size: 42, sha256: "z",
+    content_type: "text/plain; charset=utf-8", created_at: nowIso, expires_at: evtIso, seconds_left: 600,
+    expired: false, download_count: 0, is_text: true }],
   "POST /api/devices/dev_AAAABBBB/inbox/seen": [200, { marked: 1 }],
   "PATCH /api/devices/dev_AAAABBBB": [200, { id: "dev_AAAABBBB", name: "改名后", created_at: nowIso, last_seen_at: nowIso, idle_seconds: 0, inbox_count: 1 }],
   "DELETE /api/devices/dev_AAAABBBB/inbox/AB3D7K9M": [200, { removed: true }],
@@ -58,6 +75,8 @@ const routes = {
           count: 2, unread: 1, items: [] }]
       : [403, { detail: { error: "bad_device_token", message: "设备令牌无效" } }],
 };
+// 文本下载：fetch 的 .text() 走这张表（其它路径仍返回 JSON 串）
+const TEXT_ROUTES = { "/api/download/TXT12345": "取件文本第一行\n第二行：中文与 ASCII 混排" };
 const calls = [];
 const route = (method, url, ctx = {}) => {
   const hit = routes[`${method} ${url}`];
@@ -78,7 +97,8 @@ window.fetch = async (url, options = {}) => {
   const method = (options.method || "GET").toUpperCase();
   const [status, body] = route(method, url, { headers: options.headers, body: options.body });
   calls.push({ method, url, body: options.body, headers: options.headers });
-  return { ok: status < 400, status, json: async () => body };
+  return { ok: status < 400, status, json: async () => body,
+    text: async () => (url in TEXT_ROUTES ? TEXT_ROUTES[url] : JSON.stringify(body)) };
 };
 class FakeXHR {
   constructor() { this.upload = { addEventListener: (t, f) => { this.upload[t] = f; } }; }
@@ -103,6 +123,8 @@ Object.defineProperty(window.navigator, "serviceWorker", {
   configurable: true,
   value: { register: async (url, options) => { swCalls.push({ url, options }); return { update() {} }; } },
 });
+// jsdom 不实现 scrollIntoView（真实浏览器都有）
+window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 // jsdom 这个版本没有 matchMedia，补一个（真实浏览器都有）
 if (!window.matchMedia) {
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -162,7 +184,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok($("#inbox-list").textContent.includes("周会材料.pdf"), "收件箱没渲染文件");
     assert.ok($("#inbox-list").textContent.includes("来自 室友的 iPad"));
     assert.ok($("#inbox-list").textContent.includes("剩余"), "没有剩余时间");
-    assert.ok($("#inbox-count").textContent.includes("共 1 个"), $("#inbox-count").textContent);
+    assert.ok($("#inbox-count").textContent.includes("共 2 个"), $("#inbox-count").textContent);
     assert.ok(calls.some((c) => c.url.endsWith("/inbox/seen")), "没有标已读");
     assert.strictEqual($("#inbox-badge").textContent, "0", "已读后角标应清零");
   });
@@ -190,7 +212,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(/\p{Extended_Pictographic}/u.test("🔄") && !/\p{Extended_Pictographic}/u.test(btn.textContent), "按钮文案里混进了 emoji");
   });
   check("收件箱小标题与刷新按钮是同一行（.section-head 是 flex 两端对齐）", () => {
-    const head = doc.querySelector(".section-head");
+    const head = doc.querySelector("#device-self .section-head");
     assert.ok(head, "没有 .section-head");
     assert.strictEqual(window.getComputedStyle(head).display, "flex", "CSS 上不是 flex（可能忘了写样式）");
     assert.ok(head.contains($("#inbox-refresh")), "刷新按钮不在这一行里");
@@ -211,7 +233,92 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(inboxHits() > inboxBefore, `没有重新请求收件箱（${inboxBefore} → ${inboxHits()}）`);
     assert.strictEqual($("#inbox-refresh").getAttribute("aria-busy"), null, "aria-busy 没清掉");
     assert.ok(!$("#inbox-refresh").disabled, "按钮还禁用着");
-    assert.ok($("#inbox-count").textContent.includes("共 1 个"), $("#inbox-count").textContent);
+    assert.ok($("#inbox-count").textContent.includes("共 2 个"), $("#inbox-count").textContent);
+  });
+
+  console.log("== 发文本 ==");
+  check("文本区：空内容时两个按钮禁用，输入后启用且计数跟随", () => {
+    const input = $("#text-input");
+    assert.ok(input, "没有文本输入框");
+    assert.ok($("#text-upload-btn").disabled && $("#text-send-btn").disabled, "空文本时按钮不该可用");
+    assert.strictEqual($("#text-limit").textContent, "10000", "上限没按 /api/stats 显示");
+    input.value = "第一行标题\n第二行正文";
+    input.dispatchEvent(new window.Event("input"));
+    assert.strictEqual($("#text-count").textContent, String(input.value.length));
+    assert.ok(!$("#text-upload-btn").disabled, "有内容后「生成分享码」应可用");
+    assert.ok(!$("#text-send-btn").disabled, "有内容后「发送至设备」应可用");
+  });
+  check("文本超过上限时拦住并标红", () => {
+    const input = $("#text-input");
+    input.value = "字".repeat(10001);
+    input.dispatchEvent(new window.Event("input"));
+    assert.ok($("#text-upload-btn").disabled, "超长还让点");
+    assert.ok($("#text-count").classList.contains("over"), "计数没有标红");
+  });
+
+  const textInput = $("#text-input");
+  textInput.value = "第一行标题\n第二行正文";
+  textInput.dispatchEvent(new window.Event("input"));
+  $("#text-upload-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("点「生成分享码」→ POST /api/texts（带 text 与 ttl_seconds）并显示结果", () => {
+    const hit = calls.filter((c) => c.url === "/api/texts" && c.method === "POST").pop();
+    assert.ok(hit, "没有请求 /api/texts");
+    const body = JSON.parse(hit.body);
+    assert.strictEqual(body.text, "第一行标题\n第二行正文");
+    assert.strictEqual(body.ttl_seconds, 3600);
+    assert.ok(!body.targets, "只要分享码时不该带 targets");
+    assert.strictEqual($("#code-text").textContent, "TX99TX99");
+    assert.ok(!$("#r-kind-row").classList.contains("hidden"), "结果里没标出「类型：文本」");
+    assert.ok($("#r-kind").textContent.includes("字符"), $("#r-kind").textContent);
+  });
+
+  $("#text-send-btn").click();
+  check("「发送至设备」面板认出这次发的是文本", () => {
+    assert.ok(!$("#send-modal").classList.contains("hidden"), "面板没打开");
+    assert.ok($("#send-file").textContent.includes("文本"), $("#send-file").textContent);
+  });
+  await new Promise((r) => setTimeout(r, 40));      // 设备列表异步渲染
+  const textBox = $("#send-targets input");
+  textBox.checked = true;
+  textBox.dispatchEvent(new window.Event("change"));
+  check("勾了设备后确认按钮可用", () => assert.ok(!$("#send-confirm").disabled));
+  $("#send-confirm").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("文本投递：POST /api/texts 带 targets，发完关面板并提示发给谁", () => {
+    const hit = calls.filter((c) => c.url === "/api/texts" && c.method === "POST").pop();
+    const body = JSON.parse(hit.body);
+    assert.deepStrictEqual(body.targets, ["dev_AAAABBBB"], "targets 不对");
+    assert.ok($("#send-modal").classList.contains("hidden"), "发送后面板没关");
+    assert.ok($("#notice").textContent.includes("已把文本发给"), $("#notice").textContent);
+  });
+
+  console.log("== 取件页：文本内联显示 ==");
+  $("#code-input").value = "TXT12345";
+  $("#lookup-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("凭码取到文本：直接显示内容 + 复制按钮（不用先下载）", () => {
+    assert.ok(!$("#text-view").classList.contains("hidden"), "文本区没展开");
+    assert.ok($("#text-body").textContent.includes("取件文本第一行"), $("#text-body").textContent);
+    assert.ok($("#text-view-meta").textContent.includes("字符"), $("#text-view-meta").textContent);
+    assert.ok($("#copy-text-btn").querySelector("svg.icon use"), "复制按钮没有手绘图标");
+  });
+
+  console.log("== 收件箱：文本条目「查看」 ==");
+  const viewBtn = $("#inbox-list [data-view]");
+  check("收件箱里文本条目才有「查看」按钮", () => {
+    assert.ok(viewBtn, "文本条目没有查看按钮");
+    assert.strictEqual(viewBtn.dataset.view, "TXT12345");
+    assert.strictEqual(doc.querySelectorAll("#inbox-list [data-view]").length, 1, "非文本条目也出现了「查看」");
+  });
+  viewBtn.click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("点「查看」就地展开文本，再点一次收起", () => {
+    const pre = $("#inbox-list li .text-body");
+    assert.ok(pre, "没有展开文本");
+    assert.ok(pre.textContent.includes("取件文本第一行"), pre.textContent);
+    $("#inbox-list [data-view]").click();
+    assert.ok(!$("#inbox-list li .text-body"), "再点一次没有收起");
   });
 
   console.log("== 发送至设备 ==");

@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 5;
+  const ASSET_VERSION = 6;
 
   const $ = (id) => document.getElementById(id);
 
@@ -78,6 +78,17 @@
     inboxCount: $("inbox-count"),
     inboxEmpty: $("inbox-empty"),
     inboxRefresh: $("inbox-refresh"),
+    textInput: $("text-input"),
+    textCount: $("text-count"),
+    textLimit: $("text-limit"),
+    textUploadBtn: $("text-upload-btn"),
+    textSendBtn: $("text-send-btn"),
+    textView: $("text-view"),
+    textViewMeta: $("text-view-meta"),
+    textBody: $("text-body"),
+    copyTextBtn: $("copy-text-btn"),
+    rKindRow: $("r-kind-row"),
+    rKind: $("r-kind"),
     deviceList: $("device-list"),
     deviceCount: $("device-count"),
     deviceEmpty: $("device-empty"),
@@ -96,7 +107,8 @@
     sendPercent: $("send-percent"),
   };
 
-  const state = { file: null, ttl: 3600, uploading: false, share: null, target: null, timer: null };
+  const state = { file: null, text: "", ttl: 3600, uploading: false, share: null, target: null, timer: null,
+    sendMode: "file" };            // sendMode：发送面板当前发的是文件还是文本
 
   /* ---------------------------------------------------------- 小工具 */
   const humanSize = (bytes) => {
@@ -191,6 +203,12 @@
         `单文件上限 ${data.max_upload_mb} MB`;
       els.dzHint.textContent =
         `单文件上限 ${data.max_upload_mb} MB · 到期后自动删除`;
+      if (data.max_text_chars) {                      // 文本上限也以服务端为准
+        MAX_TEXT_CHARS = data.max_text_chars;
+        els.textLimit.textContent = String(MAX_TEXT_CHARS);
+        els.textInput.maxLength = MAX_TEXT_CHARS;
+        updateTextState();
+      }
       const maxTtl = data.max_ttl_seconds;
       document.querySelectorAll(".chip[data-ttl]").forEach((chip) => {
         if (Number(chip.dataset.ttl) > maxTtl) chip.remove();
@@ -294,7 +312,59 @@
     els.sendBtn.disabled = !state.file;
     els.uploadBtn.textContent = "生成分享码";
     state.uploading = false;
+    updateTextState();
   }
+
+  /* ---------------------------------------------------------- 发文本 */
+  let MAX_TEXT_CHARS = 10000;                       // 启动后用 /api/stats 覆盖
+
+  function updateTextState() {
+    state.text = els.textInput.value;
+    els.textCount.textContent = String(state.text.length);
+    els.textCount.classList.toggle("over", state.text.length >= MAX_TEXT_CHARS);
+    const ready = state.text.trim().length > 0 && state.text.length <= MAX_TEXT_CHARS;
+    els.textUploadBtn.disabled = !ready || state.uploading;
+    els.textSendBtn.disabled = !ready;
+  }
+
+  async function postText({ targets = null } = {}) {
+    const body = { text: els.textInput.value, ttl_seconds: state.ttl };
+    if (targets && targets.length) {
+      body.targets = targets;
+      const note = els.sendNote.value.trim();
+      if (note) body.note = note;
+      if (myDevice) body.from_device_id = myDevice.id;
+      else body.from_name = els.sendFromName.value.trim();
+    }
+    const headers = { "Content-Type": "application/json" };
+    if (targets && myDevice) headers["X-Device-Token"] = myDevice.token;
+    const res = await fetch("/api/texts", { method: "POST", headers, body: JSON.stringify(body) });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(errorMessage(payload, `发送失败（HTTP ${res.status}）`));
+    return payload;
+  }
+
+  els.textInput.addEventListener("input", updateTextState);
+
+  els.textUploadBtn.addEventListener("click", async () => {
+    if (!state.text.trim()) return;
+    hideNotice();
+    els.textUploadBtn.disabled = true;
+    els.textUploadBtn.textContent = "发送中…";
+    let payload = null;
+    try {
+      payload = await postText();
+    } catch (err) {
+      showNotice(err.message);
+    }
+    els.textUploadBtn.textContent = "生成分享码";
+    updateTextState();
+    if (payload) {                     // 发送成功后再动界面：界面出错不该被当成发送失败
+      showResult(payload);
+      loadStats();
+    }
+  });
+  els.textSendBtn.addEventListener("click", () => openSendDialog("text"));
 
   function startCountdown(span, expiresAt) {
     if (state.timer) clearInterval(state.timer);
@@ -317,6 +387,8 @@
     els.codeText.textContent = data.code;
     els.shareLink.value = data.share_url;
     els.rName.textContent = data.filename;
+    els.rKindRow.classList.toggle("hidden", !data.is_text);
+    if (data.is_text) els.rKind.textContent = `文本 · ${data.chars} 字符`;
     els.rSize.textContent = humanSize(data.size);
     els.rExpire.textContent = localTime(data.expires_at);
     els.rSha.textContent = data.sha256;
@@ -427,7 +499,27 @@
     els.downloadBtn.setAttribute("download", payload.filename);
     els.fileCard.classList.remove("hidden");
     startCountdown(els.fLeft, payload.expires_at);
+
+    // 文本分享：把内容拉下来直接显示（不用先下载再找文件）
+    els.textView.classList.add("hidden");
+    els.textBody.textContent = "";
+    if (payload.is_text) {
+      try {
+        const textRes = await fetch(`/api/download/${encodeURIComponent(payload.code)}`);
+        const body = textRes.ok ? await textRes.text() : "";
+        els.textBody.textContent = body;
+        els.textViewMeta.textContent = `${payload.filename} · ${body.length} 字符`;
+        els.textView.classList.remove("hidden");
+      } catch (_) {
+        showNotice("文本内容读取失败，可以点「下载」拿原文。");
+      }
+    }
   }
+
+  els.copyTextBtn.addEventListener("click", async () => {
+    const body = els.textBody.textContent;
+    if (body && await copyText(body)) flash(els.copyTextBtn, `${ICON_CHECK} 已复制`);
+  });
 
   els.lookupBtn.addEventListener("click", () => lookup());
   els.codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); });
@@ -547,6 +639,7 @@
           ${item.note ? `<span class="note">附言：${escapeHtml(item.note)}</span>` : ""}
         </span>
         <a class="primary inline" href="${escapeHtml(item.download_url)}" download>下载</a>
+        ${item.is_text ? `<button class="ghost" data-view="${escapeHtml(item.code)}">查看</button>` : ""}
         <button class="icon-btn" data-remove="${escapeHtml(item.code)}" title="从收件箱移除"
                 aria-label="从收件箱移除">${icon("icon-close")}</button>
       </li>`).join("");
@@ -598,6 +691,35 @@
   els.inboxRefresh?.addEventListener("click", refreshInboxByHand);
 
   els.inboxList.addEventListener("click", async (event) => {
+    // 「查看」：就地拉下文本内容并展开（再点一次收起）
+    const view = event.target.closest("[data-view]");
+    if (view) {
+      const item = view.closest("li");
+      const shown = item.querySelector(".text-body");
+      if (shown) {
+        shown.remove();
+        view.textContent = "查看";
+        return;
+      }
+      view.disabled = true;
+      view.textContent = "读取中…";
+      try {
+        const res = await fetch(`/api/download/${encodeURIComponent(view.dataset.view)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const pre = document.createElement("pre");
+        pre.className = "text-body";
+        pre.textContent = await res.text();
+        item.appendChild(pre);
+        view.textContent = "收起";
+      } catch (err) {
+        showNotice(`文本读取失败：${err.message}`);
+        view.textContent = "查看";
+      } finally {
+        view.disabled = false;
+      }
+      return;
+    }
+
     const button = event.target.closest("[data-remove]");
     if (!button || !myDevice) return;
     try {
@@ -665,13 +787,21 @@
   });
 
   /* ---------- 发送至设备 ---------- */
-  function openSendDialog() {
-    if (!state.file) {
+  function openSendDialog(mode = "file") {
+    if (mode === "text" && !state.text.trim()) {
+      showNotice('先在「上传文件」里写一段文本。');
+      switchTab("upload");
+      return;
+    }
+    if (mode === "file" && !state.file) {
       showNotice('请先在「上传文件」里选择文件。');
       switchTab("upload");
       return;
     }
-    els.sendFile.textContent = `将发送：${state.file.name}（${humanSize(state.file.size)}）· 有效期 ${humanLeft(state.ttl)}`;
+    state.sendMode = mode;
+    els.sendFile.textContent = mode === "text"
+      ? `将发送：文本（${state.text.length} 字符）· 有效期 ${humanLeft(state.ttl)}`
+      : `将发送：${state.file.name}（${humanSize(state.file.size)}）· 有效期 ${humanLeft(state.ttl)}`;
     els.sendFromName.value = myDevice ? myDevice.name : els.sendFromName.value;
     els.sendFromName.disabled = !!myDevice;
     els.sendFromName.placeholder = myDevice ? "" : "匿名设备";
@@ -716,9 +846,33 @@
     if (event.key === "Escape" && !els.sendModal.classList.contains("hidden")) closeSendDialog();
   });
 
-  els.sendConfirm.addEventListener("click", () => {
+  els.sendConfirm.addEventListener("click", async () => {
     const targets = selectedTargets();
-    if (!targets.length || !state.file) return;
+    if (!targets.length) return;
+
+    if (state.sendMode === "text") {          // 文本：走 /api/texts，不发 multipart
+      els.sendConfirm.disabled = true;
+      els.sendConfirm.textContent = "发送中…";
+      els.sendProgress.classList.remove("hidden");
+      let payload = null;
+      try {
+        payload = await postText({ targets });
+      } catch (err) {
+        closeSendDialog();
+        showNotice(err.message);
+        return;
+      }
+      closeSendDialog();
+      els.sendNote.value = "";
+      const names = payload.targets.map((t) => t.name).join("、");
+      showNotice(`已把文本发给 ${names}（分享码 ${payload.code}，${payload.ttl_human}后到期）`, "ok");
+      showResult(payload);
+      loadStats();
+      await loadDevices();
+      if (myDevice) await refreshInbox({ markSeen: true });
+      return;
+    }
+    if (!state.file) return;
 
     const form = new FormData();
     form.append("file", state.file);

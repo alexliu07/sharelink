@@ -318,6 +318,53 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 .section-title .icon { width: 16px; height: 16px; }
 
+/* 上传面板里的分界线：把「发文件」和「发文本」分开，用的是同一套有效期 */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 16px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--card-border); }
+
+.text-input {
+  width: 100%;
+  min-height: 108px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, .22);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.text-input:focus { outline: none; border-color: var(--accent); }
+
+/* 文本内容展示（取件页 / 收件箱展开）：等宽、自动换行、不撑破卡片 */
+.text-body {
+  margin: 0;
+  padding: 12px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, .22);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+.text-view { margin-top: 14px; }
+/* 收件箱里展开的文本：flex 行会换行，让 <pre> 独占一整行 */
+.inbox-item { flex-wrap: wrap; }
+.inbox-item .text-body { flex-basis: 100%; margin-top: 10px; }
+
 /* 小标题 + 右侧操作按钮（例如收件箱的「刷新」）：一行两端对齐，窄屏也不挤 */
 .section-head {
   display: flex;

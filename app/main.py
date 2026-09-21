@@ -620,6 +620,7 @@ def site_stats():
         "device_idle_days": config.DEVICE_IDLE_DAYS,
         "max_targets_per_send": config.MAX_TARGETS_PER_SEND,
         "max_upload_mb": config.MAX_UPLOAD_MB,
+        "max_text_chars": config.MAX_TEXT_CHARS,
         "default_ttl_seconds": config.DEFAULT_TTL_SECONDS,
         "min_ttl_seconds": config.MIN_TTL_SECONDS,
         "max_ttl_seconds": config.MAX_TTL_SECONDS,
