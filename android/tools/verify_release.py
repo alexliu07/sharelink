@@ -35,6 +35,9 @@ DEX_NEEDLES = [
     "/api/transfers",          # 设备互传：定向投递
     "X-Device-Token",          # 设备鉴权头
     "/inbox",                  # 收件箱
+    "凭分享码下载",              # 1.7：取件卡片
+    "发给哪些设备？",            # 1.8：投递目标勾选框（不再用系统 setMultiChoiceItems）
+    "先勾一台设备",              # 1.8：没勾设备时不静默降级
 ]
 
 

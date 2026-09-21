@@ -23,6 +23,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -209,6 +210,7 @@ public class MainActivity extends Activity {
             }
             ui.post(() -> {
                 if (others.isEmpty()) {
+                    toast("没有别的设备，直接生成分享码");   // 免得以为"怎么没弹选择框"
                     doUpload(payload, null, null);
                 } else {
                     askDestination(payload, others);
@@ -218,29 +220,55 @@ public class MainActivity extends Activity {
     }
 
     private void askDestination(final Payload payload, final List<String[]> others) {
-        final String[] names = new String[others.size()];
+        // 自己搭勾选列表：不同 ROM 上 setMultiChoiceItems 的列表可能出现整片不显示（高度塌成 0），
+        // 那样用户只看到标题和按钮，点「确定」就静默变成"只拿分享码"（== 什么都没发出去）。
+        // 另外这里刻意不设文字颜色：对话框主题可能是深色也可能是浅色，跟着主题走才不会看不见。
         final boolean[] checked = new boolean[others.size()];
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(18), dp(2), dp(18), dp(2));
+        TextView hint = new TextView(this);
+        hint.setText("勾选要接收的设备，然后点「发送给选中的设备」。");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        hint.setPadding(dp(6), dp(6), dp(6), dp(10));
+        list.addView(hint);
         for (int i = 0; i < others.size(); i++) {
-            names[i] = others.get(i)[1];
+            final int index = i;
+            CheckBox box = new CheckBox(this);
+            box.setText(others.get(i)[1]);
+            box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            box.setPadding(dp(6), dp(12), dp(6), dp(12));
+            box.setMinHeight(dp(48));
+            box.setOnCheckedChangeListener((v, isChecked) -> checked[index] = isChecked);
+            list.addView(box);
         }
-        new AlertDialog.Builder(this)
-                .setTitle("要把文件发给设备吗？")
-                .setMultiChoiceItems(names, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
-                .setMessage("选中的设备会在自己的收件箱里看到它；不选则只生成分享码。")
-                .setPositiveButton("确定", (dialog, which) -> {
-                    List<String> ids = new ArrayList<>();
-                    List<String> picked = new ArrayList<>();
-                    for (int i = 0; i < checked.length; i++) {
-                        if (checked[i]) {
-                            ids.add(others.get(i)[0]);
-                            picked.add(others.get(i)[1]);
-                        }
-                    }
-                    doUpload(payload, ids.isEmpty() ? null : ids, picked.isEmpty() ? null : picked);
-                })
-                .setNeutralButton("只拿分享码", (dialog, which) -> doUpload(payload, null, null))
-                .setNegativeButton("取消", (dialog, which) -> showHome())
-                .show();
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(list);
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("发给哪些设备？（共 " + others.size() + " 台）")
+                .setView(scroller)
+                .setPositiveButton("发送给选中的设备", null)
+                .setNeutralButton("只拿分享码", (d, w) -> doUpload(payload, null, null))
+                .setNegativeButton("取消", (d, w) -> showHome())
+                .create();
+        dialog.show();
+        // 「发送」按钮自己接管：一台都没勾时不静默上传、也不关对话框
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            List<String> ids = new ArrayList<>();
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < checked.length; i++) {
+                if (checked[i]) {
+                    ids.add(others.get(i)[0]);
+                    names.add(others.get(i)[1]);
+                }
+            }
+            if (ids.isEmpty()) {
+                toast("先勾一台设备；只要分享码就点「只拿分享码」");
+                return;
+            }
+            dialog.dismiss();
+            doUpload(payload, ids, names);
+        });
     }
 
     /** targets 为 null = 只上传拿分享码；否则投递给这些设备。 */
