@@ -1368,7 +1368,7 @@ public class MainActivity extends Activity {
                         ui.post(() -> new AlertDialog.Builder(MainActivity.this)
                                 .setTitle("注销失败")
                                 .setMessage(message + "\n\n要只清除本机登记吗？清除后可以重新「创建设备组」或「加入设备组」。")
-                                .setPositiveButton("清除本机登记", (dialog, which) -> {
+                                .setPositiveButton("清除本机登记", (d, w) -> {      // 不能用 dialog/which：外层 lambda 已占用同名参数
                                     clearDevice();
                                     toast("已清除本机登记");
                                     showHome();
