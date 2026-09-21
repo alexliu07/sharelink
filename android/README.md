@@ -89,6 +89,9 @@ cd android && gradle assembleRelease     # 产物在 app/build/outputs/apk/relea
   投递目标用**自建勾选列表**（`ScrollView` + 一行一个 `CheckBox`）而不是系统的 `setMultiChoiceItems`：
   部分 ROM 上那种列表会整片不渲染，用户只看到标题和按钮、点「确定」就静默变成"只拿分享码"（等于没发出去）。
   现在主按钮叫「发送给选中的设备」，一台都没勾时只提示、不发请求也不关对话框；没有别的设备时也会提示一句
+- **上传的 multipart 边界**：带文件时字段块写在文件字节后面，边界必须是 `CRLF--boundary`——
+  少这个 CRLF 服务端会把字段块当成文件内容（`ttl_seconds` 静默丢失 → 有效期回落到默认 1 小时，
+  落盘文件尾部还多几十字节垃圾）。回归脚本 `scripts/live_multipart_check.py` 对真实服务端发新旧两种布局对照
 - 还有：改名字（`PATCH /api/devices/{id}`，`HttpURLConnection` 不认 PATCH，靠反射塞方法名）、
   注销设备、导出令牌到剪贴板、从剪贴板导入令牌（导入时先读一次收件箱验证令牌有效才保存，
   和网页端的做法一致；两边格式互通：`{sharelink_device:1, id, name, token}`）
