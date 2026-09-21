@@ -9,6 +9,8 @@
 - 凭分享码取件：文件名、大小、剩余有效时间对取件人可见，下载计数入库
 - **设备互传**：把浏览器登记成"设备"→ 上传页点"发送至设备"→ 勾选一台或多台目标设备直接投递；
   目标设备打开网页即可在"设备"标签页看到文件与过期时间（标签上有未读角标）
+- **可装成手机应用（PWA）**：安卓 Chrome 直接装成独立应用，还能用系统分享面板把文件"分享 → ShareLink"；
+  iOS Safari 添加到主屏幕；设备令牌可导出/导入，换机或清缓存都能找回
 - **到期自动删除**：后台定时任务扫描清理 + 取件时惰性校验双重保障（无人访问也会删）；
   投递记录跟着文件一起清掉，收件箱不会留下取不到的死条目
 - 上传即返回 `share_url`，点开自动切到取件面板并填好分享码
@@ -118,6 +120,36 @@ curl -H "X-Device-Token: <目标设备 token>" http://127.0.0.1:8000/api/devices
 换个浏览器/清掉存储 = 需要重新登记（旧设备会在"设备列表"里留着，直到注销或 30 天不活跃被回收）。
 文件过期时投递记录跟着一起删，收件箱不会有取不到的条目。
 
+## 装成手机应用（PWA）
+
+已经内置，不需要打包、不需要上架、不需要 Apple 开发者账号：
+
+- `static/manifest.webmanifest`：名称、图标（192/512 + maskable）、`display: standalone`、`start_url`，以及安卓的 **share_target**（分享面板入口）
+- `static/icons/app-icon.svg` / `app-icon-maskable.svg`：**手绘 SVG 源**；`static/icons/*.png` 是 `scripts/render-icons.py` 渲染出来的构建产物（iOS 的 `apple-touch-icon` 和安卓安装条件只认 PNG）
+- `static/sw.js`：service worker，静态资源**网络优先**（部署后刷新即最新，不会卡在旧缓存），
+  `/api/*` 一律直连不缓存（文件有"过期即删"语义），断网时回退到缓存的外壳
+- 设备标签页里的**安装引导**：安卓/桌面 Chrome 走 `beforeinstallprompt` 按钮，iOS Safari 给「分享 → 添加到主屏幕」步骤，已装（`display-mode: standalone`）时自动隐藏
+- 设备标签页里的**导出/导入令牌**：换手机或 iOS 清理站点存储后，用导出的 JSON 找回设备（导入时会先读一次收件箱校验令牌，错的令牌不会被存下来）
+
+**装法**：安卓 Chrome 打开站点 → 菜单「安装应用」（或页面上点「装到本设备」）；iOS Safari → 分享 → 添加到主屏幕。
+装完是独立图标 + 全屏窗口。安卓还会多出「分享 → ShareLink」：在文件管理器/微信里分享文件，直接上传并跳回页面显示分享码。
+
+**Cloudflare 侧必须注意的三点**（踩过的坑）：
+
+1. `Caching → Configuration → Browser Cache TTL` 必须是 **Respect Existing Headers**。
+   默认的 4 小时会**覆盖**源站的 `Cache-Control`，连 `sw.js` 的 `no-cache` 都被改写成 `max-age=14400`，
+   结果 service worker 更新要等 4 小时才生效（源站已发 `no-cache`，可直连 `curl -I http://127.0.0.1:18000/sw.js` 核对）。
+2. 免费版请求体上限 **100MB**，所以服务端 `SHARELINK_MAX_UPLOAD_MB` 设成 **95**（留 multipart 余量），
+   这样超大文件由我们自己返回友好提示，而不是 CF 的错误页。
+3. 确认没有对 `/api/*`（含 `/share/api/*`）设 `Cache Everything` / 缓存规则。
+
+重新生成图标（改了 SVG 之后）：
+
+```bash
+uv venv /tmp/svgvenv && uv pip install --python /tmp/svgvenv/bin/python cairosvg pillow
+/tmp/svgvenv/bin/python scripts/render-icons.py --sheet /tmp/icons.png   # --sheet 出一张裁切预览图
+```
+
 ## 测试
 
 ```bash
@@ -182,7 +214,8 @@ app/        后端（FastAPI）
   storage.py  文件落盘 / 删除 / 校验
   cleanup.py  过期清理（惰性 + 后台定时）与设备回收
   main.py     HTTP 接口与静态页面挂载
-static/     前端页面（index.html / style.css / app.js，图标为内联 SVG sprite）
-scripts/    check_frontend.py：DOM id / sprite / emoji 一致性检查
+static/     前端页面（index.html / style.css / app.js / sw.js / manifest.webmanifest / favicon.svg）
+  icons/      应用图标：手绘 SVG 源 + 渲染出的 PNG（安卓/iOS 装成应用时用）
+scripts/    check_frontend.py 静态接线检查 · dom_test.js jsdom 真 DOM 测试 · render-icons.py 渲染图标
 tests/      pytest 用例
 ```
