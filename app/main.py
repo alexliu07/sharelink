@@ -3,6 +3,7 @@
 接口一览
 --------
 POST   /api/upload                        上传文件（multipart：file + ttl），返回分享码
+POST   /api/texts                         发文本（JSON：text [+ targets]），返回分享码 / 投递给设备
 GET    /api/files/{code}                  查询分享信息（文件名/大小/剩余时间）
 GET    /api/download/{code}               凭分享码下载（过期返回 410 并删除）
 DELETE /api/files/{code}                  提前取消分享（分享码即凭证）
@@ -131,6 +132,92 @@ def _device_or_403(device_id: str, token: Optional[str]) -> db.DeviceRecord:
     return device
 
 
+# ---------------------------------------------------------------- 发文本 / 投递的公共逻辑
+def is_text_record(record: db.FileRecord) -> bool:
+    """够小、且是文本：网页/App 直接内联显示（我们发的文本、用户上传的小 .txt/.md 都算）。"""
+    return record.content_type.startswith("text/") and record.size <= config.MAX_INLINE_TEXT_BYTES
+
+
+def _text_filename(text: str) -> str:
+    """用首行（截 40 字）当文件名，收件箱里一眼能看出是什么；没有可用行就叫「文本片段」。"""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return storage.safe_original_name(stripped[:40] + ".txt")
+    return "文本片段.txt"
+
+
+def _resolve_targets(raw_targets: List[str]) -> List[db.DeviceRecord]:
+    """投递目标校验：至少一台、不超上限、且都存在。"""
+    target_ids = devices.normalize_targets(raw_targets)
+    if not target_ids:
+        raise _error(400, "no_target", "请至少选择一台目标设备")
+    if len(target_ids) > config.MAX_TARGETS_PER_SEND:
+        raise _error(
+            400, "too_many_targets", f"一次最多发给 {config.MAX_TARGETS_PER_SEND} 台设备（当前选了 {len(target_ids)} 台）"
+        )
+    found: List[db.DeviceRecord] = []
+    unknown: List[str] = []
+    for device_id in target_ids:
+        device = db.get_device(device_id)
+        if device is None:
+            unknown.append(device_id)
+        else:
+            found.append(device)
+    if unknown:
+        raise _error(400, "bad_target", "以下设备不存在或已注销：" + "、".join(unknown))
+    return found
+
+
+def _sender_identity(
+    from_device_id: Optional[str], from_name: Optional[str], token: Optional[str]
+) -> tuple[Optional[db.DeviceRecord], str]:
+    """发送方身份：带上自己设备 id + 令牌才算"实名"，否则用填的名称（或匿名）。"""
+    sender: Optional[db.DeviceRecord] = None
+    if from_device_id:
+        candidate = db.get_device(from_device_id)
+        if candidate and devices.verify_token(candidate, token):
+            sender = candidate
+    return sender, devices.clean_device_name(sender.name if sender else (from_name or "匿名设备"))
+
+
+def _deliver(
+    record: db.FileRecord,
+    targets: List[db.DeviceRecord],
+    sender: Optional[db.DeviceRecord],
+    sender_name: str,
+    note: str,
+) -> None:
+    """文件只存一份，每台目标设备各插一条投递记录。"""
+    for target in targets:
+        db.insert_transfer(
+            db.TransferRecord(
+                id=0,
+                code=record.code,
+                device_id=target.id,
+                from_device_id=sender.id if sender else None,
+                from_name=sender_name,
+                note=note,
+                created_at=record.created_at,
+                expires_at=record.expires_at,
+            )
+        )
+
+
+def _share_payload(record: db.FileRecord, request: Request, seconds: int) -> dict:
+    """分享码类接口的统一响应体（上传 / 发文本 共用）。"""
+    payload = record.to_public_dict()
+    payload.update(
+        {
+            "ttl_seconds": seconds,
+            "ttl_human": codes.humanize_seconds(seconds),
+            "is_text": is_text_record(record),
+            **_share_urls(request, record.code),
+        }
+    )
+    return payload
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
@@ -164,21 +251,17 @@ def upload_file(
 ):
     record, seconds = _save_and_record(file, ttl_seconds if ttl_seconds is not None else ttl)
 
-    payload = record.to_public_dict()
-    payload.update(
-        {
-            "ttl_seconds": seconds,
-            "ttl_human": codes.humanize_seconds(seconds),
-            **_share_urls(request, record.code),
-        }
-    )
+    payload = _share_payload(record, request, seconds)
     logger.info("新分享 %s（%s，%d 字节，%s）", record.code, record.original_name, record.size, record.expires_at)
     return JSONResponse(payload, status_code=201)
 
 
 @app.get("/api/files/{code}")
 def file_info(code: str):
-    return JSONResponse(_resolve_record(code).to_public_dict())
+    record = _resolve_record(code)
+    payload = record.to_public_dict()
+    payload["is_text"] = is_text_record(record)      # 客户端据此决定"内联显示文字"还是"下载"
+    return JSONResponse(payload)
 
 
 @app.get("/api/download/{code}")
@@ -322,6 +405,7 @@ def device_inbox(
                 "note": transfer.note,
                 "sent_at": transfer.created_at,
                 "seen": transfer.seen_at is not None,
+                "is_text": is_text_record(file_record),     # 文本 → 客户端可直接展开看
                 **_share_urls(request, file_record.code),
             }
         )
@@ -372,49 +456,12 @@ def send_to_devices(
     x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
 ):
     """把一份文件投递给一台或多台设备：文件只存一份，每台目标设备各有一条投递记录。"""
-    target_ids = devices.normalize_targets((targets or "").split(","))
-    if not target_ids:
-        raise _error(400, "no_target", "请至少选择一台目标设备")
-    if len(target_ids) > config.MAX_TARGETS_PER_SEND:
-        raise _error(
-            400, "too_many_targets", f"一次最多发给 {config.MAX_TARGETS_PER_SEND} 台设备（当前选了 {len(target_ids)} 台）"
-        )
-
-    target_devices: List[db.DeviceRecord] = []
-    unknown: List[str] = []
-    for device_id in target_ids:
-        device = db.get_device(device_id)
-        if device is None:
-            unknown.append(device_id)
-        else:
-            target_devices.append(device)
-    if unknown:
-        raise _error(400, "bad_target", "以下设备不存在或已注销：" + "、".join(unknown))
-
-    # 发送方身份：带上自己设备的 id + 令牌才算"实名"，否则用填的名称（或匿名）
-    sender: Optional[db.DeviceRecord] = None
-    if from_device_id:
-        candidate = db.get_device(from_device_id)
-        if candidate and devices.verify_token(candidate, x_device_token):
-            sender = candidate
-    sender_name = devices.clean_device_name(sender.name if sender else (from_name or "匿名设备"))
+    target_devices = _resolve_targets((targets or "").split(","))
+    sender, sender_name = _sender_identity(from_device_id, from_name, x_device_token)
     clean_note = devices.clean_note(note)
 
     record, seconds = _save_and_record(file, ttl_seconds if ttl_seconds is not None else ttl)
-
-    for target in target_devices:
-        db.insert_transfer(
-            db.TransferRecord(
-                id=0,
-                code=record.code,
-                device_id=target.id,
-                from_device_id=sender.id if sender else None,
-                from_name=sender_name,
-                note=clean_note,
-                created_at=record.created_at,
-                expires_at=record.expires_at,
-            )
-        )
+    _deliver(record, target_devices, sender, sender_name, clean_note)
 
     logger.info(
         "投递 %s（%s，%d 字节）→ %s，来自 %s",
@@ -425,20 +472,79 @@ def send_to_devices(
         sender_name,
     )
 
-    payload = record.to_public_dict()
+    payload = _share_payload(record, request, seconds)
     payload.update(
         {
-            "ttl_seconds": seconds,
-            "ttl_human": codes.humanize_seconds(seconds),
             "from_name": sender_name,
             "from_device_id": sender.id if sender else None,
             "note": clean_note,
             "targets": [{"id": t.id, "name": t.name} for t in target_devices],
             "transfer_count": len(target_devices),
-            **_share_urls(request, record.code),
         }
     )
     return JSONResponse(payload, status_code=201)
+
+
+# ---------------------------------------------------------------- 发文本
+class TextSend(BaseModel):
+    """发文本：text 必填；targets 非空则同时投递给这些设备（否则只生成分享码）。"""
+
+    text: str = Field(..., description="要发送的文本")
+    ttl: Optional[str] = Field(default=None, description="有效期，如 30m / 6h / 7d")
+    ttl_seconds: Optional[int] = Field(default=None, description="有效期（秒），优先级高于 ttl")
+    targets: List[str] = Field(default_factory=list, description="目标设备 id（可多选）")
+    from_device_id: Optional[str] = Field(default=None, description="发送设备的 id")
+    from_name: Optional[str] = Field(default=None, description="发送者名称（未登记设备时使用）")
+    note: str = Field(default="", description="附言")
+
+
+@app.post("/api/texts", status_code=201)
+def send_text(
+    request: Request,
+    payload: TextSend,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """发文本：存成一个小小的 text/plain 文件，其余（分享码、有效期、投递、自动清理）与发文件完全一致。"""
+    text = (payload.text or "").lstrip("\ufeff")          # 去掉别处粘来的 BOM，其余原样保留
+    if not text.strip():
+        raise _error(400, "empty_text", "文本是空的，先写点内容")
+    if len(text) > config.MAX_TEXT_CHARS:
+        raise _error(
+            413, "too_long", f"文本太长（{len(text)} 字符），上限 {config.MAX_TEXT_CHARS} 字符"
+        )
+
+    body = text.encode("utf-8")
+    if len(body) > config.MAX_TEXT_BYTES:
+        raise _error(413, "too_long", f"文本太大（{len(body)} 字节），上限 {config.MAX_TEXT_BYTES} 字节")
+
+    target_devices = _resolve_targets(payload.targets) if payload.targets else []
+    sender, sender_name = _sender_identity(payload.from_device_id, payload.from_name, x_device_token)
+    clean_note = devices.clean_note(payload.note)
+
+    record, seconds = _store(
+        io.BytesIO(body),
+        _text_filename(text),
+        "text/plain; charset=utf-8",
+        payload.ttl_seconds if payload.ttl_seconds is not None else payload.ttl,
+    )
+    if target_devices:
+        _deliver(record, target_devices, sender, sender_name, clean_note)
+
+    logger.info(
+        "新文本分享 %s（%d 字符）→ %s",
+        record.code,
+        len(text),
+        "、".join(f"{t.name}({t.id})" for t in target_devices) if target_devices else "仅分享码",
+    )
+
+    result = _share_payload(record, request, seconds)
+    result["chars"] = len(text)
+    result["from_name"] = sender_name
+    result["from_device_id"] = sender.id if sender else None
+    result["note"] = clean_note
+    result["targets"] = [{"id": t.id, "name": t.name} for t in target_devices]
+    result["transfer_count"] = len(target_devices)
+    return JSONResponse(result, status_code=201)
 
 
 # ---------------------------------------------------------------- 安卓分享面板

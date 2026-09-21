@@ -350,3 +350,121 @@ class TestExpiryAndPrune:
         assert cleanup.prune_idle_devices(days=30) == []
         assert db.get_device(receiver["id"]) is not None
         assert inbox(client, receiver)["count"] == 1
+
+
+def send_text(client, text, targets=None, ttl="1h", token=None, **extra):
+    """发文本（JSON 接口）。targets 省略 = 只生成分享码。"""
+    payload = {"text": text, "ttl": ttl}
+    if targets is not None:
+        payload["targets"] = list(targets)
+    payload.update(extra)
+    return client.post("/api/texts", json=payload, headers=hdr(token))
+
+
+class TestTexts:
+    """发文本：既能只生成分享码，也能直接投递给设备；存成小 text/plain，客户端按 is_text 内联显示。"""
+
+    def test_text_only_returns_share_code(self, client):
+        body = "第一行当标题\n后面是正文"
+        resp = send_text(client, body)
+
+        assert resp.status_code == 201, resp.text
+        payload = resp.json()
+        assert payload["filename"] == "第一行当标题.txt"          # 首行做文件名
+        assert payload["size"] == len(body.encode("utf-8"))
+        assert payload["chars"] == len(body)
+        assert payload["is_text"] is True
+        assert payload["ttl_seconds"] == 3600          # 调 send_text 时给的是 ttl="1h"
+        assert payload["transfer_count"] == 0                     # 没给 targets → 只给码
+        assert payload["code"] in payload["share_url"]
+
+        # 内容原样，取回来逐字节一致
+        got = client.get(f"/api/download/{payload['code']}")
+        assert got.status_code == 200
+        assert got.content == body.encode("utf-8")
+        assert got.headers["content-type"].startswith("text/plain")
+
+    def test_long_first_line_is_truncated_for_filename(self, client):
+        payload = send_text(client, "标题" * 60 + "\n正文").json()
+        assert payload["filename"].endswith(".txt")
+        assert len(payload["filename"]) <= 40 + len(".txt")
+
+    def test_multiline_text_info_marked_as_text(self, client):
+        code = send_text(client, "abc").json()["code"]
+        info = client.get(f"/api/files/{code}").json()
+        assert info["is_text"] is True
+        assert info["filename"] == "abc.txt"
+
+    @pytest.mark.parametrize("text", ["", "   ", "\n\n\t "])
+    def test_empty_text_rejected(self, client, text):
+        resp = send_text(client, text)
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "empty_text"
+
+    def test_too_long_rejected_and_nothing_stored(self, client):
+        resp = send_text(client, "字" * (config.MAX_TEXT_CHARS + 1))
+        assert resp.status_code == 413
+        assert resp.json()["detail"]["error"] == "too_long"
+        assert "上限" in resp.json()["detail"]["message"]
+        assert len(list(config.DATA_DIR.glob("*"))) == 0          # 校验在落盘之前
+        assert db.stats()["files"] == 0
+
+    def test_exactly_at_limit_is_accepted(self, client):
+        resp = send_text(client, "字" * config.MAX_TEXT_CHARS)
+        assert resp.status_code == 201
+        assert resp.json()["chars"] == config.MAX_TEXT_CHARS
+
+    def test_deliver_text_to_device(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        resp = send_text(client, "周会要点：1) 改接口 2) 加测试", targets=[receiver["id"]],
+                         token=sender["token"], from_device_id=sender["id"], note="看完回我")
+
+        assert resp.status_code == 201, resp.text
+        payload = resp.json()
+        assert payload["transfer_count"] == 1
+        assert payload["from_name"] == "发送方"
+        assert payload["targets"] == [{"id": receiver["id"], "name": "收件方"}]
+
+        items = inbox(client, receiver)["items"]
+        assert [i["code"] for i in items] == [payload["code"]]
+        assert items[0]["is_text"] is True
+        assert items[0]["note"] == "看完回我"
+        assert items[0]["from_name"] == "发送方"
+        # 收件方能原样取回文字
+        assert client.get(f"/api/download/{items[0]['code']}").content == "周会要点：1) 改接口 2) 加测试".encode("utf-8")
+
+    def test_text_without_targets_does_not_touch_inbox(self, client):
+        receiver = register(client, "收件方")
+        send_text(client, "只给码", targets=[])
+        assert inbox(client, receiver)["count"] == 0
+
+    def test_bad_target_rejected_and_nothing_stored(self, client):
+        resp = send_text(client, "hello", targets=["dev_NOPE1234"])
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "bad_target"
+        assert len(list(config.DATA_DIR.glob("*"))) == 0
+
+    def test_wrong_token_does_not_impersonate(self, client):
+        sender, receiver = register(client, "发送方"), register(client, "收件方")
+        payload = send_text(client, "hi", targets=[receiver["id"]], token="forged",
+                            from_device_id=sender["id"], from_name="冒充者").json()
+        assert payload["from_name"] == "冒充者"
+        assert payload["from_device_id"] is None
+
+    def test_ttl_seconds_wins_over_ttl(self, client):
+        payload = send_text(client, "hi", ttl="7d", ttl_seconds=600).json()
+        assert payload["ttl_seconds"] == 600
+        assert payload["ttl_human"] == "10 分钟"
+
+    def test_small_text_upload_also_flagged_as_text(self, client):
+        """用户自己上传的小文本文件同样能内联显示，不只是 /api/texts 发的。"""
+        resp = client.post("/api/upload", files={"file": ("笔记.md", b"# hi", "text/markdown")},
+                           data={"ttl_seconds": "600"})
+        info = client.get(f"/api/files/{resp.json()['code']}").json()
+        assert info["is_text"] is True
+
+    def test_binary_upload_is_not_text(self, client):
+        resp = client.post("/api/upload", files={"file": ("blob.bin", b"\x00\x01" * 40000, "application/octet-stream")},
+                           data={"ttl_seconds": "600"})
+        info = client.get(f"/api/files/{resp.json()['code']}").json()
+        assert info["is_text"] is False
