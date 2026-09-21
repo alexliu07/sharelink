@@ -276,5 +276,6 @@ app/        后端（FastAPI）
 static/     前端页面（index.html / style.css / app.js / sw.js / manifest.webmanifest / favicon.svg）
   icons/      应用图标：手绘 SVG 源 + 渲染出的 PNG（安卓/iOS 装成应用时用）
 scripts/    check_frontend.py 静态接线检查 · dom_test.js jsdom 真 DOM 测试 · render-icons.py 渲染图标
+            live_code_download_check.py / live_ttl_check.py / live_device_transfer_check.py 线上自检（打真实服务端）
 tests/      pytest 用例
 ```

@@ -13,6 +13,10 @@
 - 从桌面图标点开则显示说明页；上传失败（超限、断网、服务端报错）会显示服务端返回的原因并给「重试」
 - **上传有效期**可自己选（主页「上传有效期」卡片：10 分钟 / 1 小时 / 1 天 / 7 天 / 30 天，与网页版同一套档位），
   选择记在本地；分享面板里上传的文件也用这个值（上传时带 `ttl_seconds`，结果页和收件箱都显示到期时间）
+- **凭分享码下载**（主页「凭分享码下载」卡片）：输入 8 位分享码点「下载」，先 `GET /api/files/{code}` 看信息，
+  再 `GET /api/download/{code}` 下载，文件名/MIME 从下载响应的 `Content-Disposition` / `Content-Type` 取，
+  存进系统「下载」目录并交给系统应用打开。这条链路不需要设备令牌（没登记设备也能用）；
+  失败会按状态码给中文原因（404 没这个码 / 410 已过期 / 网络失败）
 
 ## 设计与实现要点
 
@@ -96,6 +100,23 @@ cd android && gradle assembleRelease     # 产物在 app/build/outputs/apk/relea
 标记已读 → 移出 → 改名 → 注销 → 校验设备数回到跑之前。当前 **29 项全过**。
 
 **仍未验证**：真机上的实际交互（收件箱列表渲染、下载后用系统应用打开、MediaStore 写入在国行 ROM 上的行为）。
+
+### 「凭分享码下载」这一段怎么验证的
+
+`scripts/live_code_download_check.py` 复刻 App 的两条请求（`GET /api/files/{code}` → `GET /api/download/{code}`）
+打真实服务端，并用**与 `Api.filenameOf` 同构的解析逻辑**去解真实的 `Content-Disposition`：
+
+- 中文名走 Starlette 的 RFC 5987 形式（`attachment; filename*=utf-8''%E5%87%AD…`），必须能解回 `凭码下载自检-中文名.txt`；
+  ASCII 名走 `filename="plain-name.txt"` 分支；`Content-Type: text/plain; charset=utf-8` 去参数后作 MIME
+- 输入清洗与格式校验按 `MainActivity.normalizeCode` / `isCodeShaped` 的等价实现断言（`ab3d-7k9m` → `AB3D7K9M`，
+  含易混字符 `I` 的码本地就该拦）
+- 失败分支按真实状态码核对：不存在的码 404（带中文原因）、格式不对 400
+- 跑完删掉测试分享码并复查 404，不留垃圾。当前 **23 项全过**（打 `http://127.0.0.1/share`，即 nginx → uvicorn）
+
+> 注意：`headers.get("Content-Disposition")` 这类**大小写敏感**的取法会取不到（Starlette 发的是小写头名），
+> 复刻脚本里要按大小写不敏感取（`HttpURLConnection.getHeaderField` 本来就是不敏感的）。
+
+**仍未验证**：真机上点这个卡片（输入、下载、`MediaStore` 写入与「用什么应用打开」的系统选择）。
 
 ## 已验证 / 未验证（构建与上传部分）
 

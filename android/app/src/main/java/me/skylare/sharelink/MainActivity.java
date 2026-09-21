@@ -75,6 +75,7 @@ public class MainActivity extends Activity {
     private LinearLayout inboxList;
     private TextView inboxStatus;
     private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
+    private TextView codeStatus;      // 「凭分享码下载」卡上的进度 / 报错说明
 
     /* ================================================================ 生命周期 */
 
@@ -380,10 +381,12 @@ public class MainActivity extends Activity {
         content.addView(title("ShareLink"));
         if (device == null) {
             content.addView(registerSection());
+            content.addView(withTop(codeCard(), 14));
             content.addView(withTop(ttlCard(), 14));
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
+            content.addView(withTop(codeCard(), 14));
             content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(actionsCard(), 14));
         }
@@ -501,6 +504,123 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(withTop(inboxList, 10));
         return card;
+    }
+
+    /** 分享码字符集与服务端一致（刻意去掉易混的 I O 0 1，见 app/codes.py）。 */
+    private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final int CODE_LENGTH = 8;
+
+    /** 凭分享码下载：查信息 → 下载 → 交给系统打开。这个流程不需要设备令牌（未登记也能用）。 */
+    private View codeCard() {
+        LinearLayout card = card();
+        card.addView(line("凭分享码下载", FG, 16));
+        card.addView(withTop(line("输入别人给你的 " + CODE_LENGTH
+                + " 位分享码，直接下载并用系统应用打开。不用登记设备。", MUTED, 13), 8));
+
+        final EditText input = new EditText(this);
+        input.setHint("例如 AB3D7K9M");
+        input.setTextColor(FG);
+        input.setHintTextColor(MUTED);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        input.setSingleLine(true);
+        // 输入框吃掉剩余宽度、按钮固定宽度：一排两件，窄屏也不会被挤出可视区
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        inputParams.rightMargin = dp(10);
+        input.setLayoutParams(inputParams);
+
+        final Button fetch = button("下载", true);
+        fetch.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout inputRow = row();
+        inputRow.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        inputRow.addView(input);
+        inputRow.addView(fetch);
+        card.addView(withTop(inputRow, 14));
+
+        codeStatus = line("", MUTED, 12);
+        card.addView(withTop(codeStatus, 10));
+
+        fetch.setOnClickListener(v -> downloadByCode(input.getText().toString(), fetch));
+        return card;
+    }
+
+    /** 清洗分享码输入：去掉空格/连字符/点/下划线并转大写（与服务端 normalize_code 一致）。 */
+    static String normalizeCode(String raw) {
+        return raw == null ? ""
+                : raw.replaceAll("[\\s\\-_.]", "").toUpperCase(java.util.Locale.US);
+    }
+
+    /** 形如合法分享码（只做本地格式校验，存在性靠服务端）。 */
+    private static boolean isCodeShaped(String code) {
+        if (code.length() != CODE_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < code.length(); i++) {
+            if (CODE_ALPHABET.indexOf(code.charAt(i)) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 「凭分享码下载」的完整流程（网络都在工作线程，UI 用 ui.post 回主线程）。 */
+    private void downloadByCode(String raw, final Button fetch) {
+        final String code = normalizeCode(raw);
+        if (!isCodeShaped(code)) {
+            codeStatus.setTextColor(DANGER);
+            codeStatus.setText("分享码应该是 " + CODE_LENGTH + " 位字母数字（没有 I O 0 1 这些易混字符），"
+                    + "现在识别到 " + code.length() + " 位");
+            return;
+        }
+        codeStatus.setTextColor(MUTED);
+        codeStatus.setText("正在查询 " + code + "…");
+        fetch.setEnabled(false);
+        new Thread(() -> {
+            try {
+                JSONObject info = new JSONObject(Api.get(Api.BASE + "/api/files/" + code, null));
+                if (info.optBoolean("expired")) {
+                    codeFail(fetch, "这个分享已经过期了，文件已被删除");
+                    return;
+                }
+                final String infoName = info.optString("filename", "");
+                final long size = info.optLong("size");
+                ui.post(() -> codeStatus.setText("找到 " + infoName + "（" + Api.humanSize(size) + " · "
+                        + Api.humanLeft(info.optLong("seconds_left")) + "），开始下载…"));
+                // 文件名与类型以下载响应为准（中文名在 Content-Disposition 的 filename*= 里）
+                Api.Download download = Api.openDownload(
+                        Api.BASE + "/api/download/" + code, infoName, info.optString("content_type"));
+                final String name = download.filename;
+                final Saved saved = saveDownloaded(download.stream, name, download.mime);
+                ui.post(() -> {
+                    fetch.setEnabled(true);
+                    codeStatus.setTextColor(MUTED);
+                    codeStatus.setText("已存到「下载」目录：" + name);
+                    openSaved(saved, name, download.mime);
+                });
+            } catch (Api.HttpException e) {
+                codeFail(fetch, e.status == 404 ? "没有这个分享码，检查一下有没有输错"
+                        : e.status == 410 ? "这个分享已经过期了，文件已被删除"
+                        : e.getMessage());
+            } catch (IOException e) {
+                codeFail(fetch, "网络失败，没能连上服务器（" + e.getMessage() + "）");
+            } catch (Exception e) {
+                codeFail(fetch, e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+        }).start();
+    }
+
+    /** 出错时恢复按钮，并把原因留在卡片上（toast 一闪而过，看不到）。 */
+    private void codeFail(final Button fetch, final String message) {
+        ui.post(() -> {
+            fetch.setEnabled(true);
+            if (codeStatus != null) {
+                codeStatus.setTextColor(DANGER);
+                codeStatus.setText("下载失败：" + message);
+            }
+        });
     }
 
     /** 上传有效期：与服务端 / 网页版一致的五档预设（分享面板上传的文件也用这里选的值）。 */
@@ -728,9 +848,10 @@ public class MainActivity extends Activity {
         toast("开始下载 " + filename);
         new Thread(() -> {
             try {
-                InputStream in = Api.openDownload(url);
-                final Saved saved = saveDownloaded(in, filename, mime);
-                ui.post(() -> openSaved(saved, filename, mime));
+                Api.Download download = Api.openDownload(url, filename, mime);
+                final String name = download.filename;
+                final Saved saved = saveDownloaded(download.stream, name, download.mime);
+                ui.post(() -> openSaved(saved, name, download.mime));
             } catch (final Exception e) {
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> toast("下载失败：" + message));

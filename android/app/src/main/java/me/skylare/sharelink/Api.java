@@ -29,7 +29,7 @@ final class Api {
     static final String URL_SHARE_TARGET = BASE + "/api/share-target?response=json";
     static final String URL_DEVICES = BASE + "/api/devices";
     static final String URL_TRANSFERS = BASE + "/api/transfers";
-    static final String UA = "ShareLink-Android/1.6";
+    static final String UA = "ShareLink-Android/1.7";
 
     private Api() {
     }
@@ -233,8 +233,27 @@ final class Api {
         return finish(conn);
     }
 
-    /** 下载文件（投递过来的收件箱文件）。 */
-    static InputStream openDownload(String url) throws IOException {
+    /**
+     * 一次下载响应：数据流 + 服务端声明的文件名 / 类型。
+     *
+     * 文件名来自响应的 Content-Disposition（中文名走 RFC 5987 的 filename*=utf-8''…），
+     * 拿不到时才由调用方给兜底名 —— 否则存进「下载」目录的会是乱名。
+     */
+    static final class Download {
+        final InputStream stream;
+        final String filename;
+        final String mime;
+
+        Download(InputStream stream, String filename, String mime) {
+            this.stream = stream;
+            this.filename = filename;
+            this.mime = mime;
+        }
+    }
+
+    /** 下载文件（投递过来的收件箱文件 / 凭分享码下载）。 */
+    static Download openDownload(String url, String fallbackName, String fallbackMime)
+            throws IOException, HttpException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(20_000);
         conn.setReadTimeout(180_000);
@@ -245,9 +264,83 @@ final class Api {
             InputStream in = conn.getErrorStream();
             String body = in == null ? "" : readText(in);
             conn.disconnect();
-            throw new IOException(describe(status, body));
+            throw new HttpException(status, describe(status, body));
         }
-        return conn.getInputStream();
+        String disposition = conn.getHeaderField("Content-Disposition");
+        String contentType = conn.getHeaderField("Content-Type");
+        String filename = filenameOf(disposition);
+        if (filename == null || filename.trim().isEmpty()) {
+            filename = fallbackName == null ? "share.bin" : fallbackName;
+        }
+        String mime = mediaTypeOf(contentType);
+        if (mime.isEmpty()) {
+            mime = fallbackMime == null || fallbackMime.isEmpty() ? "*/*" : fallbackMime;
+        }
+        return new Download(conn.getInputStream(), filename, mime);
+    }
+
+    /* ------------------------------------------------------------ 响应头解析 */
+
+    /** 从 Content-Disposition 里取文件名：优先 RFC 5987 的 filename*=utf-8''…（中文名在这里）。 */
+    static String filenameOf(String disposition) {
+        if (disposition == null || disposition.trim().isEmpty()) {
+            return null;
+        }
+        String starred = headerValue(disposition, "filename*=");
+        if (starred != null) {
+            String encoded = starred;
+            int charsetMark = encoded.indexOf("''");            // utf-8''%E4%B8%AD…
+            if (charsetMark >= 0) {
+                encoded = encoded.substring(charsetMark + 2);
+            }
+            return unquote(percentDecode(encoded));
+        }
+        String plain = headerValue(disposition, "filename=");
+        return plain == null ? null : unquote(plain);
+    }
+
+    /** 取某个 header 参数的值（带引号就取引号里的，否则取到分号前）。 */
+    private static String headerValue(String header, String key) {
+        int at = header.toLowerCase(java.util.Locale.US).indexOf(key);
+        if (at < 0) {
+            return null;
+        }
+        String rest = header.substring(at + key.length()).trim();
+        if (rest.startsWith("\"")) {
+            int end = rest.indexOf('"', 1);
+            return end < 0 ? rest.substring(1) : rest.substring(1, end);
+        }
+        int semi = rest.indexOf(';');
+        return (semi < 0 ? rest : rest.substring(0, semi)).trim();
+    }
+
+    private static String percentDecode(String raw) {
+        try {
+            // 文件名里的分隔符只会以 %XX 形式出现（+ 会被编码成 %2B），所以 URLDecoder 够用
+            return java.net.URLDecoder.decode(raw, "UTF-8");
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    private static String unquote(String value) {
+        if (value == null) {
+            return null;
+        }
+        String text = value.trim();
+        if (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+            text = text.substring(1, text.length() - 1);
+        }
+        return text;
+    }
+
+    /** Content-Type 去掉 charset 等参数；没有就返回空串。 */
+    private static String mediaTypeOf(String contentType) {
+        if (contentType == null) {
+            return "";
+        }
+        int semi = contentType.indexOf(';');
+        return (semi < 0 ? contentType : contentType.substring(0, semi)).trim();
     }
 
     /* ------------------------------------------------------------ 小工具 */
@@ -273,10 +366,11 @@ final class Api {
         return buffer.toString("UTF-8");
     }
 
-    /** multipart 头里的文件名不能有引号和换行。 */
+    /** multipart 头里的文件名不能有引号和换行；存到「下载」目录的名字也不能带路径分隔符。 */
     static String sanitizeName(String raw) {
-        String name = raw == null ? "" : raw.replace("\"", "_").replace("\r", " ").replace("\n", " ").trim();
-        if (name.isEmpty()) {
+        String name = raw == null ? "" : raw.replace("\"", "_").replace("\r", " ")
+                .replace("\n", " ").replace("/", "_").replace("\\", "_").trim();
+        if (name.isEmpty() || ".".equals(name) || "..".equals(name)) {
             name = "未命名文件";
         }
         if (name.length() > 180) {
