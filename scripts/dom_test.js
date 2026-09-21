@@ -184,23 +184,31 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual($("#tab-upload").getAttribute("aria-selected"), "false");
   });
 
-  console.log("== 添加本设备 ==");
-  check("「添加本设备」按钮存在、可见、文案正确", () => {
-    const btn = $("#device-add-btn");
-    assert.ok(btn, "按钮不存在");
-    assert.ok(btn.closest("#panel-devices"), "按钮不在设备面板里");
-    assert.ok(visible(btn), "按钮被隐藏");
-    assert.ok(btn.textContent.includes("添加本设备"), `文案是「${btn.textContent.trim()}」`);
+  console.log("== 设备组入口（不再有单独的「添加本设备」步骤）==");
+  check("设备区没有单独的「添加本设备」步骤：只剩创建/加入两颗按钮", () => {
+    assert.ok(!$("#device-add-btn"), "还有旧的「添加本设备」按钮");
+    assert.ok(!$("#device-name-input"), "还有旧的设备名输入框");
+    const create = $("#group-create-btn");
+    const join = $("#group-join-btn");
+    assert.ok(create && join, "缺少建组/加入按钮");
+    assert.ok(create.closest("#panel-devices") && join.closest("#panel-devices"), "按钮不在设备面板里");
+    assert.ok(visible(create) && visible(join), "按钮被隐藏");
+    assert.ok(create.textContent.includes("创建设备组"), `建组文案是「${create.textContent.trim()}」`);
+    assert.ok(join.textContent.includes("加入设备组"), `加入文案是「${join.textContent.trim()}」`);
+    assert.strictEqual(create.disabled, false, "未登记时建组按钮被禁用");
+    assert.strictEqual(join.disabled, false, "未登记时加入按钮被禁用");
   });
   check('未登记时显示登记表单、隐藏「本设备」卡片', () => {
     assert.ok(visible($("#device-setup")));
     assert.ok(!visible($("#device-self")));
   });
 
-  check("未登记时：设备组表单收起、提示要先添加本设备", () => {
-    assert.ok(visible($("#group-need-device")), "没有提示先添加本设备");
-    assert.ok(!visible($("#group-create-row")), "未登记就能建组");
-    assert.ok(!visible($("#group-join-row")), "未登记就能加入组");
+  check("未登记时：表单照样能用，并提示会自动登记本设备", () => {
+    assert.ok(visible($("#group-need-device")), "没有「点按钮会自动登记」的提示");
+    assert.ok($("#group-need-device").textContent.includes("自动"), $("#group-need-device").textContent);
+    assert.ok(visible($("#group-create-row")), "未登记时建组表单被收起");
+    assert.ok(visible($("#group-join-row")), "未登记时加入表单被收起");
+    assert.ok(visible($("#device-setup")), "未登记时提示区不见了");
   });
   check("未登记时点「发送至设备」被拦住并切到设备页（投递必须实名）", () => {
     $("#tab-upload").click();
@@ -209,21 +217,27 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     input.dispatchEvent(new window.Event("input"));
     $("#text-send-btn").click();
     assert.ok(!visible($("#send-modal")), "未登记却打开了发送面板");
-    assert.ok($("#notice").textContent.includes("投递给设备要紧先把本设备加进设备列表")
-      || $("#notice").textContent.includes("加进设备列表"), $("#notice").textContent);
+    assert.ok($("#notice").textContent.includes("设备组"), `提示没提设备组：${$("#notice").textContent}`);
+    assert.ok($("#notice").textContent.includes("分享码"), `提示没给分享码这条退路：${$("#notice").textContent}`);
     assert.ok($("#panel-devices").classList.contains("active"), "没有切到设备页");
     input.value = "";                               // 收拾干净，别影响后面的文本用例
     input.dispatchEvent(new window.Event("input"));
   });
 
-  $("#device-name-input").value = "我的笔记本";
-  $("#device-add-btn").click();
-  await new Promise((r) => setTimeout(r, 20));
-  check("登记后令牌存进 localStorage、面板切换", () => {
+  calls.length = 0;
+  $("#group-name-input").value = "家里的设备";
+  $("#group-create-btn").click();
+  await new Promise((r) => setTimeout(r, 60));
+  check("点「创建设备组」：先自动登记本设备，再建组（本设备自动进组）", () => {
     const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
     assert.strictEqual(saved.token, "tok_secret_value");
     assert.strictEqual(saved.id, "dev_AAAABBBB");
-    assert.ok(!visible($("#device-setup")), "登记后表单还在");
+    const paths = calls.map((c) => `${c.method} ${c.url}`);
+    assert.ok(paths.includes("POST /api/devices"), `没有先登记：${paths.join(" | ")}`);
+    const registerAt = paths.indexOf("POST /api/devices");
+    const createAt = paths.findIndex((p) => p.startsWith("POST /api/groups"));
+    assert.ok(createAt > registerAt, `顺序不对：${paths.join(" | ")}`);
+    assert.ok(!visible($("#device-setup")), "登记后提示区还在");
     assert.ok(visible($("#device-self")), "登记后本设备卡片没出现");
   });
   check("本设备名称/收件箱渲染 + 打开面板自动标已读", () => {
@@ -475,7 +489,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   check("设备相关输入框与分享码输入框同款盒子样式（不是浏览器默认外观）", () => {
     const ref = window.getComputedStyle($("#code-input"));
     const props = ["paddingTop", "paddingLeft", "borderRadius", "borderTopWidth", "backgroundColor", "color"];
-    for (const sel of ["#device-name-input", "#send-from-name", "#send-note"]) {
+    for (const sel of ["#group-name-input", "#send-from-name", "#send-note"]) {
       const st = window.getComputedStyle($(sel));
       for (const prop of props) {
         assert.strictEqual(st[prop], ref[prop], `${sel} 的 ${prop}=${st[prop]}，分享码框=${ref[prop]}`);
@@ -483,14 +497,14 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     }
   });
   check("字号是 14px（不是浏览器默认的 13.33px）", () => {
-    for (const sel of ["#device-name-input", "#send-from-name", "#send-note"]) {
+    for (const sel of ["#group-name-input", "#send-from-name", "#send-note"]) {
       const size = window.getComputedStyle($(sel)).fontSize;
       assert.strictEqual(size, "14px", `${sel} 字号=${size}`);
     }
   });
   check("设备名/附言输入框不再是分享码那种等宽大写字距", () => {
     const ref = window.getComputedStyle($("#code-input"));
-    for (const sel of ["#device-name-input", "#send-note"]) {
+    for (const sel of ["#group-name-input", "#send-note"]) {
       const st = window.getComputedStyle($(sel));
       assert.notStrictEqual(st.fontFamily, ref.fontFamily, `${sel} 仍是等宽字体`);
       assert.notStrictEqual(st.letterSpacing, ref.letterSpacing, `${sel} 仍带分享码字距`);

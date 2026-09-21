@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 7;
+  const ASSET_VERSION = 8;
 
   const $ = (id) => document.getElementById(id);
 
@@ -70,8 +70,6 @@
     deviceImportClipBtn: $("device-import-clip-btn"),
     selfName: $("self-name"),
     selfMeta: $("self-meta"),
-    deviceNameInput: $("device-name-input"),
-    deviceAddBtn: $("device-add-btn"),
     deviceRenameBtn: $("device-rename-btn"),
     deviceLeaveBtn: $("device-leave-btn"),
     inboxList: $("inbox-list"),
@@ -687,10 +685,8 @@
 
   function renderGroups() {
     els.groupCount.textContent = groupCache.length ? `共 ${groupCache.length} 个` : "";
-    els.groupEmpty.classList.toggle("hidden", groupCache.length > 0 || !myDevice);
+    els.groupEmpty.classList.toggle("hidden", groupCache.length > 0);
     els.groupNeedDevice.classList.toggle("hidden", !!myDevice);
-    els.groupCreateRow.classList.toggle("hidden", !myDevice);
-    els.groupJoinRow.classList.toggle("hidden", !myDevice);
 
     els.groupList.innerHTML = groupCache.map((group) => {
       const owner = group.is_owner;
@@ -791,19 +787,20 @@
   });
 
   els.groupCreateBtn.addEventListener("click", async () => {
-    if (!myDevice) return;
     els.groupCreateBtn.disabled = true;
     hideNotice();
     try {
       const name = els.groupNameInput.value.trim();
+      await ensureThisDevice();                          // 没登记就顺手登记：创建设备组的设备自动进组
       const data = await apiJson("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...deviceHeaders() },
         body: JSON.stringify({ device_id: myDevice.id, name }),
       });
       els.groupNameInput.value = "";
-      showNotice(`已创建设备组「${data.group.name}」：把组 id ${data.group.id} 发给别的设备，对方粘贴就能加入。`, "ok");
+      showNotice(`已创建设备组「${data.group.name}」，本设备已在组里（你是管理员）：把组 id ${data.group.id} 发给别的设备，对方粘贴就能加入。`, "ok");
       await loadGroups();
+      await loadDevices();
     } catch (err) {
       showNotice(err.message);
     } finally {
@@ -812,7 +809,6 @@
   });
 
   els.groupJoinBtn.addEventListener("click", async () => {
-    if (!myDevice) return;
     const raw = els.groupJoinInput.value.trim();
     if (!raw) {
       showNotice("先粘贴对方给的组 id（形如 grp_7KQ2M4XZ9B3D）。");
@@ -821,6 +817,7 @@
     els.groupJoinBtn.disabled = true;
     hideNotice();
     try {
+      await ensureThisDevice();                          // 没登记就顺手登记，加入后这台设备就是成员
       const data = await apiJson(`/api/groups/${encodeURIComponent(raw)}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...deviceHeaders() },
@@ -949,26 +946,27 @@
   });
 
   /* ---------- 添加 / 改名 / 退出 ---------- */
-  els.deviceAddBtn.addEventListener("click", async () => {
-    const name = els.deviceNameInput.value.trim();
-    els.deviceAddBtn.disabled = true;
+  /**
+   * 本设备还没登记就先登记（不传名字，交给服务端按浏览器猜），登记动作对用户不可见：
+   * 点「创建设备组」/「加入设备组」时自动跑一遍，名字之后可在设备卡里改。
+   */
+  async function ensureThisDevice() {
+    if (myDevice) return myDevice;
+    const device = await apiJson("/api/devices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    saveMyDevice({ id: device.id, token: device.token, name: device.name });
+    renderSelf();                                        // 设备卡（含令牌）立刻出现
     try {
-      const device = await apiJson("/api/devices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name || undefined }),
-      });
-      saveMyDevice({ id: device.id, token: device.token, name: device.name });
-      els.deviceNameInput.value = "";
-      showNotice(`已把"${device.name}"加入设备列表；令牌已存在本浏览器，换浏览器需重新添加。`, "ok");
-      await loadDevices();
+      await loadDevices();                               // 顺手把设备页/收件箱填好
       await refreshInbox({ markSeen: true });
     } catch (err) {
-      showNotice(err.message);
-    } finally {
-      els.deviceAddBtn.disabled = false;
+      // 收件箱晚点看也行，不能因此让建组/加入失败
     }
-  });
+    return myDevice;
+  }
 
   els.deviceRenameBtn.addEventListener("click", async () => {
     if (!myDevice) return;
@@ -1005,7 +1003,7 @@
   function openSendDialog(mode = "file") {
     if (!myDevice) {
       // 投递（发文件或文本给设备）必须实名：先把本设备加进设备列表
-      showNotice('投递给设备要先把本设备加进设备列表，并且和对方在同一个设备组。只想给对方文件就用"生成分享码"，让对方凭码取件。');
+      showNotice('投递给设备要先建一个设备组、或用对方给的组 id 加入（在「设备」页点「创建设备组」/「加入设备组」，会自动登记本设备）。只想把文件给对方就用"生成分享码"，让对方凭码取件。');
       switchTab("devices");
       return;
     }
