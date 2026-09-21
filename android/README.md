@@ -33,7 +33,30 @@ https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLin
 
 签名用的是仓库里 `keystore/debug.keystore`（首次构建时自动生成并提交回来，密码是调试签名的公开值 `android`）。
 **这样做的目的是让签名固定**，否则 CI 每次生成新签名，装新版本就得先卸载。
-介意的可以换成自己的 keystore：替换该文件即可，代价是已装的版本要卸载重装一次。
+
+当前签名证书指纹（sha256，每次发版应保持不变）：
+
+```
+D2:46:8E:45:C0:2C:75:3F:51:F1:10:FF:B0:48:CA:6C:B7:6C:46:0B:29:A8:B8:09:B2:FF:0D:B4:84:88:A2:9D
+```
+
+校验（不用安卓设备）：
+
+```bash
+python3 android/tools/verify_release.py D2:46:8E:45:C0:2C:75:3F:51:F1:10:FF:B0:48:CA:6C:B7:6C:46:0B:29:A8:B8:09:B2:FF:0D:B4:84:88:A2:9D
+```
+
+CI 自己也会自检（`apksigner verify --print-certs` 的结果必须等于 `keytool -list -v` 的指纹），签名一漂就红。
+
+**构建脚本里两个必须写死的点**（踩过坑）：
+- 不能用 `signingConfigs.getByName("debug")`：它的语义是「用 `~/.android/debug.keystore`，没有或者**别名对不上就自己造一张**」，
+  而它期望的别名是大写 `AndroidDebugKey`、我们 `keytool` 生成的是小写 `androiddebugkey` —— 于是它把仓库 keystore 覆盖重造，
+  每次构建换一把密钥（实测三次构建指纹各不相同）。现在改成显式 `signingConfigs.create("release-key")`，
+  `storeFile = rootProject.file("keystore/debug.keystore")`、`storeType = "PKCS12"`、`keyAlias = "androiddebugkey"`
+- 不能用 `android-actions/setup-android@v3`：它在新 runner 上会去装已淘汰的 `tools` 包而失败（`Failed to find package 'tools'`），
+  workflow 里直接用镜像自带的 `/usr/local/lib/android/sdk`
+
+介意的可以换成自己的 keystore：替换该文件并同步别名/口令即可，代价是已装的版本要卸载重装一次。
 
 本地构建（有 Android SDK 的机器上）：
 
