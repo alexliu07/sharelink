@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import json
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
@@ -472,7 +473,7 @@ def android_share_target(
         body = text.strip() or title.strip()
         if not body:
             return RedirectResponse(f"{_page_url(request)}?share=empty", status_code=303)
-        stem = storage.safe_original_name(title).strip()
+        stem = storage.safe_original_name(title).strip() if title.strip() else ""  # 空标题会得到"未命名文件"
         name = f"{stem}.txt" if stem else "分享文本.txt"
         record, _ = _store(io.BytesIO(text.strip().encode("utf-8") or body.encode("utf-8")),
                            name, "text/plain; charset=utf-8", raw_ttl)
@@ -531,6 +532,25 @@ async def cache_policy(request: Request, call_next):
     elif path.startswith(_LONG_CACHE_PREFIXES):
         response.headers["Cache-Control"] = "public, max-age=604800"
     return response
+
+
+# ---------------------------------------------------------------- 顶层清单（manifest）
+SHARE_TARGET_ACTION_PLACEHOLDER = "__SHARE_TARGET_ACTION__"
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest(request: Request):
+    """动态吐 manifest：把 share_target.action 换成**绝对 URL**。
+
+    踩过的坑：action 写成相对路径时，安卓 Chrome 生成 WebAPK 有几率解析不出来，
+    应用就永远不出现在系统分享面板里（Chrome 文档的示例还是相对路径，实际会翻车）。
+    绝对地址按请求推导，所以本地 uvicorn、反代子路径、Cloudflare 后面都对。
+    """
+    raw = (STATIC_DIR / "manifest.webmanifest").read_text(encoding="utf-8")
+    action = f"{str(request.base_url).rstrip('/')}{config.PUBLIC_BASE_PATH}/api/share-target"
+    manifest = json.loads(raw.replace(SHARE_TARGET_ACTION_PLACEHOLDER, action))
+    logger.info("manifest: share_target.action=%s", manifest["share_target"]["action"])
+    return JSONResponse(content=manifest, media_type="application/manifest+json")
 
 
 # 静态页面挂在最后，保证 /api/* 优先匹配

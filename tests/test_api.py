@@ -255,3 +255,68 @@ class TestBasePathNormalization:
         monkeypatch.setenv("SHARELINK_PUBLIC_BASE_PATH", "/share?x=1")
         with pytest.raises(RuntimeError):
             config._env_base_path("SHARELINK_PUBLIC_BASE_PATH")
+
+
+class TestManifest:
+    """manifest 的 share_target.action 必须是绝对 URL —— 相对路径会让安卓 Chrome 不把应用放进分享面板。"""
+
+    def test_action_is_absolute_and_placeholder_replaced(self, client):
+        resp = client.get("/manifest.webmanifest")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/manifest+json")
+        assert resp.headers["cache-control"] == "no-cache"
+        assert "__SHARE_TARGET_ACTION__" not in resp.text  # 占位符必须被换成真实地址
+
+    def test_share_target_shape(self, client):
+        target = client.get("/manifest.webmanifest").json()["share_target"]
+
+        assert target["method"] == "POST"
+        assert target["enctype"] == "multipart/form-data"
+        assert target["action"].startswith(("http://", "https://"))
+        assert target["action"].endswith("/api/share-target")
+        assert target["params"]["files"][0]["name"] == "file"
+        assert "*/*" in target["params"]["files"][0]["accept"]
+
+
+class TestShareTarget:
+    """安卓「分享 → ShareLink」的落地点：收文件或纯文本 → 生成分享码 → 303 回首页。"""
+
+    class _Redirected:
+        def __init__(self, response):
+            location = response.headers["location"]
+            assert "code=" in location, location
+            self.code = location.split("code=")[1].split("&")[0]
+
+    def _post(self, client, **kwargs):
+        resp = client.post("/api/share-target", follow_redirects=False, **kwargs)
+        assert resp.status_code == 303, resp.text
+        return self._Redirected(resp)
+
+    def test_shared_file_becomes_share_code(self, client):
+        result = self._post(client, files={"file": ("报告.txt", b"hello", "text/plain")},
+                            data={"title": "测试", "text": "来自分享面板"})
+        info = client.get(f"/api/files/{result.code}").json()
+
+        assert info["filename"] == "报告.txt"
+        assert info["size"] == 5
+
+    def test_text_only_share_saved_as_txt(self, client):
+        """安卓分享链接时 URL 落在 text 里，title 拿来当文件名。"""
+        result = self._post(client, data={"title": "一个链接", "text": "https://example.com"})
+        info = client.get(f"/api/files/{result.code}").json()
+
+        assert info["filename"] == "一个链接.txt"
+        assert info["size"] == len("https://example.com".encode())
+
+    def test_text_share_without_title_uses_fallback_name(self, client):
+        result = self._post(client, data={"text": "只有正文"})
+        info = client.get(f"/api/files/{result.code}").json()
+
+        assert info["filename"] == "分享文本.txt"
+
+    def test_empty_share_redirects_with_flag(self, client):
+        resp = client.post("/api/share-target", data={"text": "   "}, follow_redirects=False)
+
+        assert resp.status_code == 303
+        assert "share=empty" in resp.headers["location"]

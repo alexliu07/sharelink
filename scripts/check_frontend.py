@@ -71,6 +71,15 @@ else:
         action = manifest["share_target"].get("action", "")
         if manifest["share_target"].get("method") != "POST" or not action:
             pwa_problems.append("share_target 必须是 POST + action")
+        elif action == "__SHARE_TARGET_ACTION__":
+            # 静态文件里是占位符，由 app/main.py 的 /manifest.webmanifest 路由换成绝对地址
+            main_py = (static.parent / "app" / "main.py").read_text(encoding="utf-8")
+            if "SHARE_TARGET_ACTION_PLACEHOLDER" not in main_py:
+                pwa_problems.append("manifest 里是 action 占位符，但 app/main.py 没有替换它的路由（分享面板会失效）")
+        elif not action.startswith(("http://", "https://")):
+            pwa_problems.append(
+                f"share_target.action 必须是绝对 URL（安卓 Chrome 才会把应用放进分享面板），现在是 {action!r}"
+            )
 
 # sw.js 的预缓存清单：每个 URL 都要能对应到磁盘上的文件，否则 SW 安装时静默跳过
 sw_path = static / "sw.js"

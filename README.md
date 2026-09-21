@@ -143,6 +143,16 @@ curl -H "X-Device-Token: <目标设备 token>" http://127.0.0.1:8000/api/devices
    这样超大文件由我们自己返回友好提示，而不是 CF 的错误页。
 3. 确认没有对 `/api/*`（含 `/share/api/*`）设 `Cache Everything` / 缓存规则。
 
+**安卓分享面板（share_target）的两个坑**：
+
+1. `share_target.action` 必须是**绝对 URL**。写相对路径（哪怕是 `/share/api/...` 这种根相对）时，
+   安卓 Chrome 生成 WebAPK 有几率解析不出来，应用就**永远不出现在系统分享面板**里（Chrome 官方文档的示例还是相对路径，实际会翻车）。
+   所以 manifest 里放的是占位符 `__SHARE_TARGET_ACTION__`，由 `app/main.py` 的 `/manifest.webmanifest` 路由按请求换成绝对地址——
+   本地 uvicorn、反代子路径、Cloudflare 后面都是对的；`check_frontend.py` 会盯住这条。
+2. **改了 manifest 不会热更新到已安装的应用**。必须彻底卸载后重新「安装应用」，新配置才生效。
+   自查：安卓 Chrome 打开 `chrome://webapks`，列表里应该能看到本应用；如果不在，说明装成了「网页快捷方式」，
+   那种安装方式永远不会出现在分享面板里（国内网络下 WebAPK 生成失败就会退化）。
+
 重新生成图标（改了 SVG 之后）：
 
 ```bash

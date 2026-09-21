@@ -19,7 +19,7 @@
     { "src": "icons/icon-maskable-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "share_target": {
-    "action": "api/share-target",
+    "action": "__SHARE_TARGET_ACTION__",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
