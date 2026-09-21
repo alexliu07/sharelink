@@ -13,12 +13,14 @@ import sys
 SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app/src/main/java/me/skylare/sharelink/MainActivity.java"
 
 # 注册设备后的期望顺序（不含标题）
-EXPECTED = ["deviceCard", "inboxCard", "ttlCard", "actionsCard", "codeCard"]
+EXPECTED = ["deviceCard", "inboxCard", "groupCard", "ttlCard", "actionsCard", "textCard", "codeCard"]
 CARD_LABEL = {
     "deviceCard": "我的设备",
     "inboxCard": "收件箱（收到的文件）",
+    "groupCard": "设备组",
     "ttlCard": "上传有效期",
     "actionsCard": "发文件给别的设备（发送）",
+    "textCard": "发文本",
     "codeCard": "凭分享码下载（接收）",
 }
 

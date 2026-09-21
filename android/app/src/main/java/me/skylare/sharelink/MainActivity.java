@@ -45,6 +45,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * ShareLink 安卓端：既能把别处分享来的文件上传成分享码，也能当一台设备（收件箱 + 定向投递给别的设备）。
@@ -79,7 +80,9 @@ public class MainActivity extends Activity {
     private TextView progressLabel;
     private LinearLayout inboxList;
     private TextView inboxStatus;
-    private Button inboxRefresh;      // 收件箱「刷新」按钮（手动重拉，过程中禁用）
+    private Button inboxRefresh;
+    private LinearLayout groupBox;            // 设备组列表（每次刷新重建里面的行）
+    private TextView groupStatus;             // 设备组状态行      // 收件箱「刷新」按钮（手动重拉，过程中禁用）
     private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
     private TextView codeStatus;      // 「凭分享码下载」卡上的进度 / 报错说明
 
@@ -217,18 +220,35 @@ public class MainActivity extends Activity {
                 () -> showHome());
     }
 
-    /** 后台拉设备列表（排除自己）；出错就当没有别的设备，不让发送流程崩掉。 */
+    /**
+     * 后台拉「自己 + 同组设备」（排除自己）；出错就当没有别的设备，不让发送流程崩掉。
+     *
+     * 服务端 v1.13 起只按令牌返回同组设备，所以这里必须带上 device_id 与令牌；
+     * 每台设备还会附上"我们共同的设备组"，用来在选择框里标出它属于哪个组。
+     */
     private List<String[]> fetchOtherDevices() {
         final List<String[]> others = new ArrayList<>();
         try {
-            JSONObject res = new JSONObject(Api.get(Api.URL_DEVICES, null));
+            String url = Api.URL_DEVICES + "?device_id=" + deviceId();
+            JSONObject res = new JSONObject(Api.get(url, deviceToken()));
             JSONArray arr = res.optJSONArray("devices");
             if (arr != null) {
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject item = arr.getJSONObject(i);
-                    if (!deviceId().equals(item.optString("id"))) {
-                        others.add(new String[]{item.optString("id"), item.optString("name")});
+                    if (deviceId().equals(item.optString("id"))) {
+                        continue;
                     }
+                    StringBuilder labels = new StringBuilder();
+                    JSONArray groupsJson = item.optJSONArray("shared_groups");
+                    if (groupsJson != null) {
+                        for (int g = 0; g < groupsJson.length(); g++) {
+                            if (labels.length() > 0) {
+                                labels.append("、");
+                            }
+                            labels.append(groupsJson.getJSONObject(g).optString("name"));
+                        }
+                    }
+                    others.add(new String[]{item.optString("id"), item.optString("name"), labels.toString()});
                 }
             }
         } catch (Exception ignored) {
@@ -257,7 +277,8 @@ public class MainActivity extends Activity {
         for (int i = 0; i < others.size(); i++) {
             final int index = i;
             CheckBox box = new CheckBox(this);
-            box.setText(others.get(i)[1]);
+            String groupLabel = others.get(i).length > 2 ? others.get(i)[2] : "";
+            box.setText(groupLabel.isEmpty() ? others.get(i)[1] : others.get(i)[1] + "（" + groupLabel + "）");
             box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             box.setPadding(dp(6), dp(12), dp(6), dp(12));
             box.setMinHeight(dp(48));
@@ -438,6 +459,7 @@ public class MainActivity extends Activity {
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
+            content.addView(withTop(groupCard(), 14));      // 设备组：只有同组设备之间才能互传
             content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(actionsCard(), 14));
             content.addView(withTop(textCard(), 14));      // 发文本：跟发文件一个流程
@@ -1359,6 +1381,280 @@ public class MainActivity extends Activity {
         // 里面的标题/选项条就被挤成两行或被裁掉
         box.addView(content, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    // ============================================================ 设备组
+    /** 设备组卡片：建组 / 凭组 id 加入 / 我的组（点「管理」看成员与操作）。 */
+    private View groupCard() {
+        LinearLayout card = card();
+        card.addView(line("设备组", FG, 16));
+        card.addView(withTop(line("只有同一个组里的设备之间才能互传。组 id 就是邀请凭证：复制下来发给别的设备，"
+                + "对方粘贴加入就和你同组了。", MUTED, 13), 8));
+
+        LinearLayout buttons = row();
+        Button create = button("创建设备组", true);
+        create.setOnClickListener(v -> promptDialog("创建设备组", "组名，例如：家里的设备", "", "创建", name -> {
+            if (name.isEmpty()) {
+                toast("先给组起个名字");
+                return;
+            }
+            groupAction("正在创建设备组…", () -> {
+                JSONObject res = groupCall("POST", "", new JSONObject().put("name", name));
+                JSONObject group = res.optJSONObject("group");
+                return "已建「" + group.optString("name") + "」：" + group.optString("id") + "（复制发给别的设备即可加入）";
+            });
+        }));
+        LinearLayout.LayoutParams createParams =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        createParams.rightMargin = dp(10);
+        buttons.addView(create, createParams);
+
+        Button join = button("加入设备组", false);
+        join.setOnClickListener(v -> promptDialog("加入设备组", "粘贴对方给的组 id，例如 grp_7KQ2M4XZ9B3D", "", "加入", raw -> {
+            if (raw.isEmpty()) {
+                toast("先粘贴组 id");
+                return;
+            }
+            groupAction("正在加入设备组…", () -> {
+                JSONObject res = groupCall("POST", "/" + raw + "/join", null);
+                JSONObject group = res.optJSONObject("group");
+                return res.optBoolean("already_member")
+                        ? "你已经在「" + group.optString("name") + "」里了"
+                        : "已加入「" + group.optString("name") + "」，现在可以和组里的设备互传了";
+            });
+        }));
+        buttons.addView(join, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(withTop(buttons, 10));
+
+        groupStatus = line("正在读取设备组…", MUTED, 12);
+        card.addView(withTop(groupStatus, 10));
+        groupBox = column();
+        groupBox.setPadding(0, 0, 0, 0);
+        card.addView(groupBox);
+        loadGroups();
+        return card;
+    }
+
+    /** 拉我加入的设备组（每组再拉一次成员名单），完成后在主线程渲染。 */
+    private void loadGroups() {
+        final LinearLayout box = groupBox;
+        final TextView status = groupStatus;
+        if (device == null || box == null) {
+            return;
+        }
+        status.setText("正在读取设备组…");
+        new Thread(() -> {
+            try {
+                JSONObject res = new JSONObject(Api.get(Api.URL_GROUPS + "?device_id=" + deviceId(), deviceToken()));
+                JSONArray arr = res.optJSONArray("groups");
+                final List<JSONObject> groups = new ArrayList<>();
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject group = arr.getJSONObject(i);
+                        try {
+                            JSONObject detail = new JSONObject(Api.get(Api.URL_GROUPS + "/" + group.optString("id")
+                                    + "?device_id=" + deviceId(), deviceToken()));
+                            group.put("members", detail.optJSONArray("members"));
+                        } catch (Exception ignored) {
+                            // 名单只有组内可见；拉不到就只显示成员数
+                        }
+                        groups.add(group);
+                    }
+                }
+                ui.post(() -> {
+                    if (groupBox != box) {              // 界面已经重建过，这次结果丢掉
+                        return;
+                    }
+                    renderGroups(box, status, groups);
+                });
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                ui.post(() -> {
+                    if (groupStatus == status) {
+                        status.setText("设备组读取失败：" + message);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void renderGroups(LinearLayout box, TextView status, List<JSONObject> groups) {
+        box.removeAllViews();
+        status.setText(groups.isEmpty()
+                ? "还没有加入任何设备组"
+                : "共 " + groups.size() + " 个设备组（点「管理」看成员与操作）");
+        for (JSONObject group : groups) {
+            final JSONObject target = group;
+            LinearLayout item = column();
+            item.setPadding(dp(12), dp(12), dp(12), dp(12));
+            item.setBackground(rounded(CARD_SOFT, 12));
+            item.addView(line(group.optString("name") + (group.optBoolean("is_owner") ? "（我是管理员）" : ""), FG, 14));
+            item.addView(withTop(line(group.optString("id"), MUTED, 12), 4));
+            item.addView(withTop(line(group.optInt("member_count") + " 台设备 · 管理里可复制组 id"
+                    + (group.optBoolean("is_owner") ? "、移除成员、解散" : "、退出"), MUTED, 12), 4));
+            Button manage = button("管理", false);
+            manage.setOnClickListener(v -> showGroupDialog(target));
+            item.addView(withTop(manage, 8));
+            box.addView(withTop(item, 10));
+        }
+    }
+
+    /** 组详情对话框：成员名单 + 复制组 id /（管理员）改名、解散 /（成员）退出。 */
+    private void showGroupDialog(final JSONObject group) {
+        final String groupId = group.optString("id");
+        final String groupName = group.optString("name");
+        final boolean owner = group.optBoolean("is_owner");
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(18), dp(6), dp(18), dp(2));
+        body.addView(line("组 id：" + groupId, MUTED, 12));
+
+        JSONArray members = group.optJSONArray("members");
+        if (members == null) {
+            body.addView(withTop(line("成员 " + group.optInt("member_count") + " 台（名单读取失败，稍后可重试）",
+                    MUTED, 12), 8));
+        } else {
+            for (int i = 0; i < members.length(); i++) {
+                JSONObject member = members.optJSONObject(i);
+                if (member == null) {
+                    continue;
+                }
+                LinearLayout rowBox = row();
+                rowBox.setPadding(0, dp(6), 0, 0);
+                String label = member.optString("name") + (member.optBoolean("is_self") ? "（本设备）" : "")
+                        + ("owner".equals(member.optString("role")) ? " · 管理员" : " · 成员");
+                rowBox.addView(line(label, FG, 13),
+                        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                if (owner && !member.optBoolean("is_self")) {
+                    final String memberId = member.optString("id");
+                    final String memberName = member.optString("name");
+                    Button remove = button("移出", false);
+                    remove.setOnClickListener(v -> groupAction("正在移除 " + memberName + "…", () -> {
+                        groupCall("DELETE", "/" + groupId + "/members/" + memberId, null);
+                        return "已把 " + memberName + " 移出设备组";
+                    }));
+                    rowBox.addView(remove);
+                }
+                body.addView(rowBox);
+            }
+        }
+
+        LinearLayout actions = row();
+        Button copy = button("复制组 id", true);
+        copy.setOnClickListener(v -> {
+            copyToClipboard("ShareLink 设备组 id", groupId);
+            toast("组 id 已复制：" + groupId);
+        });
+        actions.addView(copy);
+        if (owner) {
+            Button rename = button("改组名", false);
+            rename.setOnClickListener(v -> promptDialog("改组名", "新的组名", groupName, "保存",
+                    newName -> groupAction("正在改组名…", () -> {
+                        groupCall("PATCH", "/" + groupId, new JSONObject().put("name", newName));
+                        return "组名已改成「" + newName + "」";
+                    })));
+            actions.addView(rename);
+            Button dissolve = button("解散", false);
+            dissolve.setOnClickListener(v -> confirmDialog("解散设备组",
+                    "解散「" + groupName + "」？组内成员关系会清空（已经收到的文件不受影响）。", "解散",
+                    () -> groupAction("正在解散设备组…", () -> {
+                        groupCall("DELETE", "/" + groupId, null);
+                        return "已解散「" + groupName + "」";
+                    })));
+            actions.addView(dissolve);
+        } else {
+            Button leave = button("退出", false);
+            leave.setOnClickListener(v -> confirmDialog("退出设备组",
+                    "退出「" + groupName + "」？退出后就不能和组里其他设备互传了。", "退出",
+                    () -> groupAction("正在退出设备组…", () -> {
+                        groupCall("POST", "/" + groupId + "/leave", null);
+                        return "已退出「" + groupName + "」";
+                    })));
+            actions.addView(leave);
+        }
+        body.addView(withTop(actions, 12));
+
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(body);
+        new AlertDialog.Builder(this)
+                .setTitle(groupName)
+                .setView(scroller)
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 带输入框的对话框（建组 / 加入 / 改名共用）。 */
+    private void promptDialog(String title, String hint, String initial, String confirmLabel,
+                              Consumer<String> onConfirm) {
+        final EditText input = new EditText(this);
+        input.setHint(hint);
+        input.setText(initial == null ? "" : initial);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setSingleLine(true);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(4), dp(18), dp(2));
+        box.addView(input, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton(confirmLabel, (dialog, which) -> onConfirm.accept(input.getText().toString().trim()))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 危险操作确认框（解散 / 退出 / 移出）。 */
+    private void confirmDialog(String title, String message, String confirmLabel, Runnable onConfirm) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(confirmLabel, (dialog, which) -> onConfirm.run())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private interface GroupTask {
+        String run() throws Exception;
+    }
+
+    /** 后台跑一个设备组操作；成功刷新列表并提示，失败弹出服务端给的中文原因。 */
+    private void groupAction(final String doing, final GroupTask task) {
+        toast(doing);
+        new Thread(() -> {
+            try {
+                final String message = task.run();
+                ui.post(() -> {
+                    toast(message);
+                    loadGroups();
+                });
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                final String label = doing.replace("正在", "").replace("…", "");
+                ui.post(() -> showFlowMessage(label + "失败：" + message));
+            }
+        }).start();
+    }
+
+    /** 设备组接口调用：自动带上 device_id 与令牌（DELETE 的 device_id 走查询串，跟网页端一致）。 */
+    private JSONObject groupCall(String method, String path, JSONObject body) throws Exception {
+        String url = Api.URL_GROUPS + path;
+        String query = url.contains("?") ? "&" : "?";
+        if ("GET".equals(method)) {
+            return new JSONObject(Api.get(url + query + "device_id=" + deviceId(), deviceToken()));
+        }
+        if ("DELETE".equals(method)) {
+            return new JSONObject(Api.delete(url + query + "device_id=" + deviceId(), deviceToken()));
+        }
+        JSONObject payload = body == null ? new JSONObject() : body;
+        if (!payload.has("device_id")) {
+            payload.put("device_id", deviceId());
+        }
+        if ("PATCH".equals(method)) {
+            return new JSONObject(Api.patchJson(url, deviceToken(), payload.toString()));
+        }
+        return new JSONObject(Api.postJson(url, deviceToken(), payload.toString()));
     }
 
     private LinearLayout column() {
