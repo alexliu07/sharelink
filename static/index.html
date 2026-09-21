@@ -61,6 +61,17 @@
     <symbol id="icon-plus" viewBox="0 0 24 24">
       <path d="M12 5v14"/><path d="M5 12h14"/>
     </symbol>
+    <symbol id="icon-install" viewBox="0 0 24 24">
+      <rect x="6" y="2.5" width="12" height="19" rx="2.6"/>
+      <path d="M12 7.6v5.8"/>
+      <path d="M9.4 10.8 12 13.4l2.6-2.6"/>
+      <path d="M9.6 18.4h4.8"/>
+    </symbol>
+    <symbol id="icon-ios-share" viewBox="0 0 24 24">
+      <path d="M12 3.4v9.2"/>
+      <path d="M8.8 6.6 12 3.4l3.2 3.2"/>
+      <path d="M6.2 11.4v7.4a2 2 0 0 0 2 2h7.6a2 2 0 0 0 2-2v-7.4"/>
+    </symbol>
   </svg>
 
   <div class="glow"></div>
@@ -180,6 +191,17 @@
 
     <!-- ============================ 设备 ============================ -->
     <section class="panel" id="panel-devices">
+      <!-- 装成应用（PWA）引导：安卓走安装提示，iOS 给"添加到主屏幕"步骤 -->
+      <div class="install-card hidden" id="install-card">
+        <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg></span>
+        <div class="install-body">
+          <strong>把 ShareLink 装成应用</strong>
+          <p class="hint">独立图标 + 全屏窗口，不用每次输网址，设备令牌也不会因为换页面而丢。</p>
+          <p class="hint hidden" id="install-hint-os"></p>
+        </div>
+        <button class="primary inline hidden" id="install-btn"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg>装到本设备</button>
+      </div>
+
       <div id="device-setup">
         <div class="device-intro">
           <span class="dz-icon"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg></span>
@@ -208,6 +230,14 @@
           </div>
           <button class="ghost" id="device-rename-btn">改名</button>
           <button class="danger" id="device-leave-btn">退出列表</button>
+        </div>
+
+        <!-- 令牌备份/恢复：换手机、或 iOS 清理站点存储后用来找回设备 -->
+        <div class="backup-row">
+          <span class="muted">换手机或清过浏览器数据？先把令牌备份出来：</span>
+          <button class="ghost" id="device-export-btn"><svg class="icon" aria-hidden="true"><use href="#icon-box"></use></svg>导出令牌</button>
+          <button class="ghost" id="device-import-btn"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>导入令牌</button>
+          <input type="file" id="device-import-file" accept="application/json,.json" hidden>
         </div>
 
         <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-inbox"></use></svg>发给我的文件 <span class="muted" id="inbox-count"></span></h3>

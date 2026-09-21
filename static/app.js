@@ -50,6 +50,12 @@
     inboxBadge: $("inbox-badge"),
     deviceSetup: $("device-setup"),
     deviceSelf: $("device-self"),
+    installCard: $("install-card"),
+    installBtn: $("install-btn"),
+    installHint: $("install-hint-os"),
+    deviceExportBtn: $("device-export-btn"),
+    deviceImportBtn: $("device-import-btn"),
+    deviceImportFile: $("device-import-file"),
     selfName: $("self-name"),
     selfMeta: $("self-meta"),
     deviceNameInput: $("device-name-input"),
@@ -731,6 +737,117 @@
     refreshInbox({ markSeen: els.panelDevices.classList.contains("active") });
   }, 20000);
 
+  /* ---------- 装成应用（PWA）引导 ---------- */
+  let installPrompt = null;
+
+  const isStandalone = () => {
+    const mode = window.matchMedia?.("(display-mode: standalone)");   // 极老的浏览器可能没有 matchMedia
+    return Boolean(mode?.matches) || window.navigator.standalone === true;
+  };
+  const isIosSafari = () =>
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);   // iPadOS 伪装成 Mac
+
+  function renderInstallCard() {
+    if (isStandalone()) {
+      els.installCard.classList.add("hidden");   // 已经装过了，不唠叨
+      return;
+    }
+    els.installCard.classList.remove("hidden");
+    const canPrompt = Boolean(installPrompt);
+    els.installBtn.classList.toggle("hidden", !canPrompt);
+    els.installHint.classList.toggle("hidden", canPrompt);
+    if (!canPrompt) {
+      els.installHint.innerHTML = isIosSafari()
+        ? `${icon("icon-ios-share")}<span>Safari 底部点「分享」→「添加到主屏幕」→「添加」。</span>`
+        : '<span>用 Chrome 打开本页，右上角菜单里选「安装应用」或「添加到主屏幕」。</span>';
+    }
+  }
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();          // 拦下浏览器的默认小条，等用户点我们的按钮
+    installPrompt = event;
+    renderInstallCard();
+  });
+  window.addEventListener("appinstalled", () => {
+    installPrompt = null;
+    els.installCard.classList.add("hidden");
+    showNotice("已装到设备上，以后从桌面图标直接进。", "ok");
+  });
+  els.installBtn.addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (_) { /* 用户直接划掉也算选择 */ }
+    installPrompt = null;
+    renderInstallCard();
+  });
+  renderInstallCard();
+
+  /* ---------- 设备令牌备份 / 恢复 ---------- */
+  els.deviceExportBtn.addEventListener("click", () => {
+    if (!myDevice) return;
+    const payload = { sharelink_device: 1, id: myDevice.id, name: myDevice.name, token: myDevice.token };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sharelink-${myDevice.name || "device"}-${myDevice.id}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showNotice("令牌已导出到下载的文件里 —— 它就是凭证，别发给别人。", "ok");
+  });
+
+  els.deviceImportBtn.addEventListener("click", () => els.deviceImportFile.click());
+  els.deviceImportFile.addEventListener("change", async () => {
+    const picked = els.deviceImportFile.files?.[0];
+    if (!picked) return;
+    try {
+      const data = JSON.parse(await picked.text());
+      const id = String(data.id || data.device_id || "").trim();
+      const token = String(data.token || data.device_token || "").trim();
+      if (!id || !token) throw new Error("文件里没有 id / token");
+      // 先用这个令牌读一次收件箱，通了才认（避免把错的令牌存下来）
+      const inbox = await apiJson(`/api/devices/${encodeURIComponent(id)}/inbox`, {
+        headers: { "X-Device-Token": token },
+      });
+      saveMyDevice({ id, token, name: inbox.device?.name || data.name || "已恢复设备" });
+      renderInbox(inbox);
+      setBadge(inbox.unread || 0);
+      await loadDevices();
+      showNotice(`已恢复设备「${myDevice.name}」，收件箱 ${inbox.count} 个文件。`, "ok");
+    } catch (error) {
+      showNotice(`导入失败：${error.message}`);
+    } finally {
+      els.deviceImportFile.value = "";
+    }
+  });
+
+  /* ---------------------------------------------------------- PWA（装成应用） */
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    // 非安全上下文（http / 自签域名）注册会直接抛错，先自己判断，省得控制台一片红
+    if (location.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(location.hostname)) return;
+    window.addEventListener("load", () => {
+      navigator.serviceWorker
+        .register("./sw.js", { scope: "./" })
+        .then((registration) => registration.update?.())
+        .catch((error) => console.warn("[pwa] service worker 注册失败", error));
+    });
+  }
+  registerServiceWorker();
+
+  window.addEventListener("offline", () => {
+    showNotice("当前离线：上传、下载、发送都会失败，联网后自动恢复。", "ok");
+  });
+  window.addEventListener("online", () => {
+    hideNotice();
+    loadStats();
+    loadDevices();
+    if (myDevice) refreshInbox();
+  });
+
   /* ---------------------------------------------------------- 初始化 */
   const params = new URLSearchParams(location.search);
   const preset = params.get("code");
@@ -739,6 +856,11 @@
   myDevice = loadMyDevice();
   renderSelf();
   if (myDevice) refreshInbox();
+  if (params.get("share") === "ok") {
+    showNotice("已收到分享面板发来的内容，分享码在上面的「用分享码下载」里就绪。", "ok");
+  } else if (params.get("share") === "empty") {
+    showNotice("分享的内容是空的，什么都没收到。");
+  }
   if (preset) {
     switchTab("fetch");
     els.codeInput.value = normalizeCode(preset);

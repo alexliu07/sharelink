@@ -16,6 +16,7 @@ POST   /api/devices/{id}/inbox/seen       收件箱标为已读（需令牌）
 DELETE /api/devices/{id}/inbox/{code}     从自己的收件箱移掉一条（需令牌）
 
 POST   /api/transfers                     发送至设备（multipart：file + targets 列表）
+POST   /api/share-target                  安卓「分享 → ShareLink」的落地页（收文件/文本后 303 回首页并带分享码）
 
 GET    /api/stats                         站点统计
 GET    /api/healthz                       存活探针
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
@@ -32,7 +34,7 @@ from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -76,39 +78,45 @@ def _share_urls(request: Request, code: str) -> dict:
     }
 
 
-def _save_and_record(file: UploadFile, raw_ttl) -> tuple[db.FileRecord, int]:
-    """校验有效期 → 落盘 → 写 files 表；上传与定向投递共用。"""
+def _store(fileobj, original_name: str, content_type: Optional[str], raw_ttl) -> tuple[db.FileRecord, int]:
+    """校验有效期 → 落盘 → 写 files 表；上传、定向投递、分享面板落地都走这里。"""
     try:
         seconds = codes.parse_ttl(raw_ttl)
     except ValueError as exc:
         raise _error(400, "bad_ttl", str(exc)) from exc
 
-    original_name = storage.safe_original_name(file.filename)
+    safe_name = storage.safe_original_name(original_name)
     code = codes.generate_unique_code(db.code_exists)
     try:
-        saved = storage.save_stream(file.file, code, original_name)
+        saved = storage.save_stream(fileobj, code, safe_name)
     except storage.FileTooLarge as exc:
         raise _error(
             413,
             "too_large",
             f"文件太大，单文件上限 {exc.limit_bytes // (1024 * 1024)} MB",
         ) from exc
-    finally:
-        file.file.close()
 
     now = db.utcnow()
     record = db.FileRecord(
         code=code,
-        original_name=original_name,
+        original_name=safe_name,
         stored_name=saved.stored_name,
         size=saved.size,
         sha256=saved.sha256,
-        content_type=file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream",
+        content_type=content_type or mimetypes.guess_type(safe_name)[0] or "application/octet-stream",
         created_at=db.to_iso(now),
         expires_at=db.to_iso(now + timedelta(seconds=seconds)),
     )
     db.insert_file(record)
     return record, seconds
+
+
+def _save_and_record(file: UploadFile, raw_ttl) -> tuple[db.FileRecord, int]:
+    """上传接口用的薄封装：关掉上传流再交给 _store。"""
+    try:
+        return _store(file.file, file.filename or "", file.content_type, raw_ttl)
+    finally:
+        file.file.close()
 
 
 def _device_or_403(device_id: str, token: Optional[str]) -> db.DeviceRecord:
@@ -431,6 +439,49 @@ def send_to_devices(
     return JSONResponse(payload, status_code=201)
 
 
+# ---------------------------------------------------------------- 安卓分享面板
+def _page_url(request: Request) -> str:
+    base = str(request.base_url).rstrip("/")
+    return f"{base}{config.PUBLIC_BASE_PATH}/"
+
+
+@app.post("/api/share-target")
+def android_share_target(
+    request: Request,
+    file: Optional[List[UploadFile]] = File(default=None),
+    title: str = Form(""),
+    text: str = Form(""),
+    ttl: Optional[str] = Form(default=None),
+    ttl_seconds: Optional[int] = Form(default=None),
+):
+    """安卓「分享 → ShareLink」的落地点（manifest 的 share_target 指向这里）。
+
+    收到文件（或多个里的第一个）或纯文本就生成分享码，然后 303 回首页带上 `?code=`，
+    页面逻辑与普通上传完全一致 —— 分享完立刻看到码，不用手打。
+    """
+    raw_ttl = ttl_seconds if ttl_seconds is not None else ttl
+    uploads = [item for item in (file or []) if item is not None]
+
+    if uploads:
+        if len(uploads) > 1:
+            logger.info("分享面板一次送了 %d 个文件，只取第一个：%s", len(uploads), uploads[0].filename)
+        for extra in uploads[1:]:
+            extra.file.close()
+        record, _ = _save_and_record(uploads[0], raw_ttl)
+    else:
+        body = text.strip() or title.strip()
+        if not body:
+            return RedirectResponse(f"{_page_url(request)}?share=empty", status_code=303)
+        stem = storage.safe_original_name(title).strip()
+        name = f"{stem}.txt" if stem else "分享文本.txt"
+        record, _ = _store(io.BytesIO(text.strip().encode("utf-8") or body.encode("utf-8")),
+                           name, "text/plain; charset=utf-8", raw_ttl)
+
+    logger.info("分享面板收到 %s（%d 字节，%s）→ 分享码 %s",
+                record.original_name, record.size, record.content_type, record.code)
+    return RedirectResponse(f"{_share_urls(request, record.code)['share_url']}&share=ok", status_code=303)
+
+
 # ---------------------------------------------------------------- 运维
 @app.get("/api/stats")
 def site_stats():
@@ -456,6 +507,30 @@ def site_stats():
 @app.get("/api/healthz")
 def healthz():
     return {"status": "ok", "version": app.version}
+
+
+# ---------------------------------------------------------------- 静态资源缓存策略
+# 反代（nginx 会剥掉 /share 前缀）与 Cloudflare 都按这些头决定缓存行为：
+#   - sw.js 必须 no-cache，否则 CF 会按 .js 默认规则缓存 4 小时，service worker 更新被拖住
+#   - 外壳文件（页面/脚本/样式/manifest）也走 no-cache：浏览器与 CF 每次带 ETag 回源校验，
+#     命中就 304（开销极小），部署后刷新一次即生效，不用再教用户 Ctrl+Shift+R
+#   - 图标这类几乎不变的内容给长缓存
+#   - 接口响应一律 no-store：文件有"过期即删"的语义，绝不能进任何中间层缓存
+_SHELL_PATHS = {"/", "/index.html", "/app.js", "/style.css", "/sw.js", "/favicon.svg", "/manifest.webmanifest"}
+_LONG_CACHE_PREFIXES = ("/icons/",)
+
+
+@app.middleware("http")
+async def cache_policy(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    elif path in _SHELL_PATHS:
+        response.headers["Cache-Control"] = "no-cache"
+    elif path.startswith(_LONG_CACHE_PREFIXES):
+        response.headers["Cache-Control"] = "public, max-age=604800"
+    return response
 
 
 # 静态页面挂在最后，保证 /api/* 优先匹配

@@ -393,6 +393,37 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   }
 }
 
+/* --------- 装成应用（PWA）引导 --------- */
+.install-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 15px 16px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  background: rgba(108, 140, 255, .1);
+  border: 1px solid rgba(108, 140, 255, .28);
+}
+.install-body { flex: 1 1 220px; min-width: 0; }
+.install-body strong { font-size: 14.5px; }
+.install-body .hint { margin: 6px 0 0; display: flex; align-items: flex-start; gap: 6px; }
+.install-body .hint .icon { width: 15px; height: 15px; margin-top: 2px; color: var(--accent-2); }
+.install-card .primary.inline { flex: 0 0 auto; align-self: center; }
+
+/* --------- 设备令牌备份/恢复 --------- */
+.backup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(120, 140, 255, .14);
+}
+.backup-row .muted { flex: 1 1 200px; font-size: 12.5px; }
+.backup-row .ghost { display: inline-flex; align-items: center; gap: 6px; }
+
 .hidden { display: none !important; }
 
 @media (max-width: 520px) {
