@@ -51,9 +51,19 @@ const routes = {
   "POST /api/transfers": [201, { code: "ZZ99YY88", filename: "报告.pdf", size: 10, ttl_seconds: 3600, ttl_human: "1 小时",
     from_name: "我的笔记本", targets: [{ id: "dev_AAAABBBB", name: "我的笔记本" }, { id: "dev_CCCCDDDD", name: "室友的 iPad" }],
     transfer_count: 2 }],
+  // 令牌相关的路由按请求头给不同结果，才能验证"导入时会先校验令牌"
+  "GET /api/devices/dev_ZZZZ9999/inbox": ({ headers }) =>
+    headers?.["X-Device-Token"] === "tok_restored"
+      ? [200, { device: { id: "dev_ZZZZ9999", name: "旧手机", created_at: nowIso, last_seen_at: nowIso, idle_seconds: 5 },
+          count: 2, unread: 1, items: [] }]
+      : [403, { detail: { error: "bad_device_token", message: "设备令牌无效" } }],
 };
 const calls = [];
-const route = (method, url) => routes[`${method} ${url}`] || [404, { detail: { error: "not_found", message: `未打桩: ${method} ${url}` } }];
+const route = (method, url, ctx = {}) => {
+  const hit = routes[`${method} ${url}`];
+  if (typeof hit === "function") return hit(ctx);
+  return hit || [404, { detail: { error: "not_found", message: `未打桩: ${method} ${url}` } }];
+};
 
 const dom = new JSDOM(html, { url: "http://localhost/share/", runScripts: "dangerously", pretendToBeVisual: true });
 const { window } = dom;
@@ -66,7 +76,7 @@ doc.head.appendChild(style);
 
 window.fetch = async (url, options = {}) => {
   const method = (options.method || "GET").toUpperCase();
-  const [status, body] = route(method, url);
+  const [status, body] = route(method, url, { headers: options.headers, body: options.body });
   calls.push({ method, url, body: options.body, headers: options.headers });
   return { ok: status < 400, status, json: async () => body };
 };
@@ -76,7 +86,7 @@ class FakeXHR {
   setRequestHeader(key, value) { (this.headers ||= {})[key] = value; }
   addEventListener(type, fn) { (this.events ||= {})[type] = fn; }
   send(body) {
-    const [status, payload] = route(this.method, this.url);
+    const [status, payload] = route(this.method, this.url, { headers: this.headers, body });
     calls.push({ method: this.method, url: this.url, body, headers: this.headers });
     this.status = status; this.responseText = JSON.stringify(payload);
     setTimeout(() => {
@@ -86,6 +96,17 @@ class FakeXHR {
   }
 }
 window.XMLHttpRequest = FakeXHR;
+
+// service worker：jsdom 不实现，桩掉并记录注册参数
+const swCalls = [];
+Object.defineProperty(window.navigator, "serviceWorker", {
+  configurable: true,
+  value: { register: async (url, options) => { swCalls.push({ url, options }); return { update() {} }; } },
+});
+// jsdom 这个版本没有 matchMedia，补一个（真实浏览器都有）
+if (!window.matchMedia) {
+  window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+}
 
 window.eval(appJs);
 const $ = (sel) => doc.querySelector(sel);
@@ -216,6 +237,83 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(!visible($("#send-modal")), "面板没关");
     assert.ok($("#notice").textContent.includes("已发送给"), $("#notice").textContent);
     assert.ok($("#notice").textContent.includes("ZZ99YY88"), "提示里没有分享码");
+  });
+
+  console.log("== PWA：安装引导 / service worker ==");
+  check("未安装时显示安装卡片，且给的是文字步骤（jsdom 不是 iOS）", () => {
+    assert.ok(visible($("#install-card")), "安装卡片没出现");
+    assert.ok($("#install-btn").classList.contains("hidden"), "没有 beforeinstallprompt 时不该显示按钮");
+    assert.ok(visible($("#install-hint-os")), "应显示安装步骤提示");
+    assert.ok($("#install-hint-os").textContent.includes("Chrome"), $("#install-hint-os").textContent);
+  });
+  let prompted = false;
+  check("收到 beforeinstallprompt 后出现安装按钮，点了会调 prompt()", () => {
+    const event = new window.Event("beforeinstallprompt");
+    event.preventDefault = () => {};
+    event.prompt = () => { prompted = true; };
+    event.userChoice = Promise.resolve({ outcome: "accepted" });
+    window.dispatchEvent(event);
+    assert.ok(visible($("#install-btn")), "安装按钮没出现");
+    assert.ok($("#install-hint-os").classList.contains("hidden"), "有按钮时不该再显示步骤");
+    $("#install-btn").click();
+    assert.ok(prompted, "没有调用 prompt()");
+  });
+  check("页面加载后注册了 service worker（相对路径 + 作用域）", () => {
+    window.dispatchEvent(new window.Event("load"));
+    const call = swCalls.at(-1);
+    assert.ok(call, "没有调用 register()");
+    assert.strictEqual(call.url, "./sw.js");
+    assert.strictEqual(call.options.scope, "./");
+  });
+
+  console.log("== 设备令牌备份 / 恢复 ==");
+  const blobUrls = [];
+  const downloaded = [];
+  let exportedText = "";
+  window.URL.createObjectURL = (blob) => { blobUrls.push(blob); blob.text().then((text) => { exportedText = text; }); return "blob:stub"; };
+  window.URL.revokeObjectURL = () => {};
+  window.HTMLAnchorElement.prototype.click = function () { downloaded.push({ href: this.href, download: this.download }); };
+
+  $("#device-export-btn").click();
+  await new Promise((r) => setTimeout(r, 20));
+  check("导出令牌：文件名带设备名与 id，内容是可恢复的 JSON", () => {
+    const file = downloaded.at(-1);
+    assert.ok(file, "没有触发下载");
+    assert.ok(file.download.startsWith("sharelink-") && file.download.endsWith(".json"), file.download);
+    assert.ok(file.download.includes("dev_AAAABBBB"), file.download);
+    const payload = JSON.parse(exportedText);
+    assert.strictEqual(payload.id, "dev_AAAABBBB");
+    assert.strictEqual(payload.token, "tok_secret_value");
+  });
+
+  const importWith = async (payload) => {
+    const upload = new window.File([JSON.stringify(payload)], "device.json", { type: "application/json" });
+    Object.defineProperty($("#device-import-file"), "files", { value: [upload], configurable: true });
+    $("#device-import-file").dispatchEvent(new window.Event("change"));
+    await new Promise((r) => setTimeout(r, 30));
+  };
+
+  await importWith({ id: "dev_ZZZZ9999", token: "token-wrong" });
+  check("导入错误令牌：拒绝且不覆盖当前设备", () => {
+    assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
+    assert.strictEqual(JSON.parse(window.localStorage.getItem("sharelink.device")).id, "dev_AAAABBBB");
+  });
+
+  await importWith({ id: "dev_ZZZZ9999", token: "tok_restored" });
+  check("导入正确令牌：先校验收件箱再落盘，并更新界面", () => {
+    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
+    assert.strictEqual(saved.id, "dev_ZZZZ9999");
+    assert.strictEqual(saved.token, "tok_restored");
+    assert.strictEqual($("#self-name").textContent, "旧手机");
+    assert.ok($("#notice").textContent.includes("已恢复设备"), $("#notice").textContent);
+    assert.strictEqual($("#inbox-badge").textContent, "1");
+  });
+  const junk = new window.File(["这不是 JSON"], "x.json", { type: "application/json" });
+  Object.defineProperty($("#device-import-file"), "files", { value: [junk], configurable: true });
+  $("#device-import-file").dispatchEvent(new window.Event("change"));
+  await new Promise((r) => setTimeout(r, 30));
+  check("导入垃圾文件：报错而不是静默失败", () => {
+    assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
   });
 
   window.close();
