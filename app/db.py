@@ -55,6 +55,28 @@ CREATE TABLE IF NOT EXISTS transfers (
 );
 CREATE INDEX IF NOT EXISTS idx_transfers_device ON transfers (device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transfers_code   ON transfers (code);
+
+-- 设备组：创建者即管理员（owner_device_id）；谁拿到组 id 就能加入
+CREATE TABLE IF NOT EXISTS groups (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    owner_device_id TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (owner_device_id) REFERENCES devices (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups (owner_device_id);
+
+-- 成员关系：删掉一行 = 退出 / 被移出；一台设备可以属于多个组
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id  TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    role      TEXT NOT NULL DEFAULT 'member',
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, device_id),
+    FOREIGN KEY (group_id)  REFERENCES groups (id)  ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_group_members_device ON group_members (device_id);
 """
 
 
@@ -216,6 +238,8 @@ def clear_all() -> None:
     """仅测试用：清空元数据表。"""
     with connect() as conn:
         conn.execute("DELETE FROM transfers")
+        conn.execute("DELETE FROM group_members")
+        conn.execute("DELETE FROM groups")
         conn.execute("DELETE FROM devices")
         conn.execute("DELETE FROM files")
 
@@ -227,7 +251,9 @@ def stats() -> dict:
         ).fetchone()
         devices = conn.execute("SELECT COUNT(*) AS n FROM devices").fetchone()["n"]
         transfers = conn.execute("SELECT COUNT(*) AS n FROM transfers").fetchone()["n"]
-    return {"files": row["total"], "bytes": row["bytes"], "devices": devices, "transfers": transfers}
+        groups = conn.execute("SELECT COUNT(*) AS n FROM groups").fetchone()["n"]
+    return {"files": row["total"], "bytes": row["bytes"], "devices": devices, "transfers": transfers,
+            "groups": groups}
 
 
 # ============================================================ 设备与投递
@@ -485,3 +511,171 @@ def count_device_inbox(device_id: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM transfers WHERE device_id = ?", (device_id,)).fetchone()
     return row["n"]
+
+
+# ============================================================ 设备组
+@dataclass
+class GroupRecord:
+    """一个设备组：创建者即管理员（owner）。谁拿到组 id 就能加入。"""
+
+    id: str
+    name: str
+    owner_device_id: str
+    created_at: str
+
+    def to_public_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "owner_device_id": self.owner_device_id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "GroupRecord":
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            owner_device_id=row["owner_device_id"],
+            created_at=row["created_at"],
+        )
+
+
+def insert_group(record: GroupRecord) -> GroupRecord:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO groups (id, name, owner_device_id, created_at) VALUES (?, ?, ?, ?)",
+            (record.id, record.name, record.owner_device_id, record.created_at),
+        )
+    return record
+
+
+def group_id_exists(group_id: str) -> bool:
+    with connect() as conn:
+        return conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone() is not None
+
+
+def get_group(group_id: str) -> Optional[GroupRecord]:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+    return GroupRecord.from_row(row) if row else None
+
+
+def rename_group(group_id: str, name: str) -> bool:
+    with connect() as conn:
+        affected = conn.execute("UPDATE groups SET name = ? WHERE id = ?", (name, group_id)).rowcount
+    return affected > 0
+
+
+def delete_group(group_id: str) -> bool:
+    """解散组：成员关系靠外键级联一起删掉。"""
+    with connect() as conn:
+        affected = conn.execute("DELETE FROM groups WHERE id = ?", (group_id,)).rowcount
+    return affected > 0
+
+
+def list_groups_for_device(device_id: str) -> List[GroupRecord]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT g.* FROM groups g JOIN group_members m ON m.group_id = g.id "
+            "WHERE m.device_id = ? ORDER BY g.created_at",
+            (device_id,),
+        ).fetchall()
+    return [GroupRecord.from_row(row) for row in rows]
+
+
+def count_groups_owned(device_id: str) -> int:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM groups WHERE owner_device_id = ?", (device_id,)
+        ).fetchone()["n"]
+
+
+def group_member_role(group_id: str, device_id: str) -> Optional[str]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT role FROM group_members WHERE group_id = ? AND device_id = ?", (group_id, device_id)
+        ).fetchone()
+    return row["role"] if row else None
+
+
+def group_member_count(group_id: str) -> int:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?", (group_id,)
+        ).fetchone()["n"]
+
+
+def add_group_member(group_id: str, device_id: str, role: str, joined_at: str) -> bool:
+    """加入组；已经在里面就什么都不做（返回 False）。"""
+    with connect() as conn:
+        affected = conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_id, device_id, role, joined_at) VALUES (?, ?, ?, ?)",
+            (group_id, device_id, role, joined_at),
+        ).rowcount
+    return affected > 0
+
+
+def remove_group_member(group_id: str, device_id: str) -> bool:
+    with connect() as conn:
+        affected = conn.execute(
+            "DELETE FROM group_members WHERE group_id = ? AND device_id = ?", (group_id, device_id)
+        ).rowcount
+    return affected > 0
+
+
+def list_group_members(group_id: str, now: Optional[datetime] = None) -> List[dict]:
+    """成员列表（管理员排最前，其余按加入时间）。"""
+    now = now or utcnow()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.device_id, m.role, m.joined_at, d.name, d.last_seen_at FROM group_members m "
+            "JOIN devices d ON d.id = m.device_id WHERE m.group_id = ? "
+            "ORDER BY (m.role = 'owner') DESC, m.joined_at",
+            (group_id,),
+        ).fetchall()
+    members = []
+    for row in rows:
+        idle = max(int((now - from_iso(row["last_seen_at"])).total_seconds()), 0)
+        members.append(
+            {
+                "id": row["device_id"],
+                "name": row["name"],
+                "role": row["role"],
+                "joined_at": row["joined_at"],
+                "last_seen_at": row["last_seen_at"],
+                "idle_seconds": idle,
+            }
+        )
+    return members
+
+
+def device_group_ids(device_id: str) -> List[str]:
+    with connect() as conn:
+        rows = conn.execute("SELECT group_id FROM group_members WHERE device_id = ?", (device_id,)).fetchall()
+    return [row["group_id"] for row in rows]
+
+
+def list_shared_groups(first: str, second: str) -> List[GroupRecord]:
+    """两台设备共同属于的组（first == second 时就是它自己的所有组）。"""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT g.* FROM groups g "
+            "JOIN group_members a ON a.group_id = g.id AND a.device_id = ? "
+            "JOIN group_members b ON b.group_id = g.id AND b.device_id = ? "
+            "ORDER BY g.name",
+            (first, second),
+        ).fetchall()
+    return [GroupRecord.from_row(row) for row in rows]
+
+
+def list_peer_device_ids(device_id: str) -> List[str]:
+    """与我至少同处一个组的其他设备 id（设备页只显示这些设备）。"""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT b.device_id FROM group_members a "
+            "JOIN group_members b ON a.group_id = b.group_id "
+            "WHERE a.device_id = ? AND b.device_id != ?",
+            (device_id, device_id),
+        ).fetchall()
+    return [row["device_id"] for row in rows]

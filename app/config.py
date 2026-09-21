@@ -74,5 +74,13 @@ MAX_TARGETS_PER_SEND = _env_int("SHARELINK_MAX_TARGETS_PER_SEND", 20)
 #: 分享码长度（字符集见 codes.ALPHABET）
 CODE_LENGTH = 8
 
+#: 设备组 id：12 位（比分享码长一截，还带 grp_ 前缀，避免与分享码混淆/误传）
+GROUP_ID_LENGTH = _env_int("SHARELINK_GROUP_ID_LENGTH", 12)
+GROUP_ID_PREFIX = "grp_"
+#: 一个设备最多创建多少个组、一个组最多多少台设备
+MAX_GROUPS_PER_DEVICE = _env_int("SHARELINK_MAX_GROUPS_PER_DEVICE", 20)
+MAX_GROUP_MEMBERS = _env_int("SHARELINK_MAX_GROUP_MEMBERS", 50)
+GROUP_NAME_MAX_CHARS = _env_int("SHARELINK_GROUP_NAME_MAX_CHARS", 40)
+
 #: 读写文件的分块大小（1 MiB）
 CHUNK_SIZE = 1024 * 1024

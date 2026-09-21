@@ -55,13 +55,21 @@ curl -X DELETE http://127.0.0.1:8000/api/files/AB3D7K9M
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/api/devices` | 把当前浏览器登记成一台设备（JSON `{name?}`，留空按 User-Agent 猜）；返回设备 `id` 与 `token`，**token 只返回这一次** |
-| `GET` | `/api/devices` | 设备列表（公开，供选择投递目标）：名称、最后活跃、收件箱条数 |
+| `GET` | `/api/devices` | 同组设备列表（**带 `?device_id=` + `X-Device-Token`**）：自己 + 与自己同组的设备，每台附 `shared_groups`（共同组）。不带令牌**不再对外列出名单** |
 | `PATCH` | `/api/devices/{id}` | 改设备名（需 `X-Device-Token`） |
 | `DELETE` | `/api/devices/{id}` | 注销设备（需令牌），其收件箱记录一并删除 |
 | `GET` | `/api/devices/{id}/inbox` | **我的收件箱**（需令牌）：别人发来的文件 + 文件名的过期时间/剩余秒数/发送方/附言，同时刷新"最后活跃" |
 | `POST` | `/api/devices/{id}/inbox/seen` | 收件箱标为已读（需令牌） |
 | `DELETE` | `/api/devices/{id}/inbox/{code}` | 从自己的收件箱移掉一条（需令牌；文件与分享码不受影响） |
-| `POST` | `/api/transfers` | 发送至设备：multipart `file` + `targets`（设备 id 逗号分隔，可多选）+ `ttl`/`ttl_seconds` + `note` + 可选 `from_device_id`/`from_name` |
+| `POST` | `/api/groups` | 建设备组（JSON `{device_id, name?}` + 令牌）：创建者即管理员；返回 `grp_` + 12 位组 id |
+| `GET` | `/api/groups` | 我加入的设备组（含成员数、我的角色、管理员名） |
+| `GET` | `/api/groups/{gid}` | 组详情 + 成员名单（仅组内成员可见） |
+| `POST` | `/api/groups/{gid}/join` | 凭组 id 加入（JSON `{device_id}` + 令牌；幂等，已在组里返回 `already_member`） |
+| `POST` | `/api/groups/{gid}/leave` | 自己退出（管理员不行：要解散） |
+| `DELETE` | `/api/groups/{gid}/members/{did}` | 管理员把某台设备移出组（`?device_id=` 传管理员自己） |
+| `PATCH` | `/api/groups/{gid}` | 改组名（仅管理员） |
+| `DELETE` | `/api/groups/{gid}` | 解散组（仅管理员；已投递到收件箱的文件不受影响） |
+| `POST` | `/api/transfers` | 发送至设备：multipart `file` + `targets`（设备 id 逗号分隔，可多选）+ `ttl`/`ttl_seconds` + `note` + **必填** `from_device_id`（+ `X-Device-Token`）。要求实名且每台目标都与自己同组 |
 
 命令行示例：
 
@@ -79,9 +87,36 @@ curl -F "file=@report.pdf" -F "targets=dev_AB3D7K9M,dev_CD4E8L2N" -F "ttl=1h" \
 
 # 目标设备看自己的收件箱
 curl -H "X-Device-Token: <目标设备 token>" http://127.0.0.1:8000/api/devices/dev_CD4E8L2N/inbox
+
+# 建设备组（创建者即管理员），拿到 grp_ 开头的 12 位组 id
+curl -X POST -H 'Content-Type: application/json' -H "X-Device-Token: <token>" \
+     -d '{"device_id":"dev_AB3D7K9M","name":"家里的设备"}' http://127.0.0.1:8000/api/groups
+
+# 别的设备拿组 id 加入（大小写/空格/省略 grp_ 前缀都能认）
+curl -X POST -H 'Content-Type: application/json' -H "X-Device-Token: <对方 token>" \
+     -d '{"device_id":"dev_CD4E8L2N"}' http://127.0.0.1:8000/api/groups/grp_7KQ2M4XZ9B3D/join
+
+# 自己退出 / 管理员移除成员 / 解散
+curl -X POST -H 'Content-Type: application/json' -H "X-Device-Token: <对方 token>" \
+     -d '{"device_id":"dev_CD4E8L2N"}' http://127.0.0.1:8000/api/groups/grp_7KQ2M4XZ9B3D/leave
+curl -X DELETE "http://127.0.0.1:8000/api/groups/grp_7KQ2M4XZ9B3D/members/dev_CD4E8L2N?device_id=dev_AB3D7K9M" \
+     -H "X-Device-Token: <管理员 token>"
+curl -X DELETE "http://127.0.0.1:8000/api/groups/grp_7KQ2M4XZ9B3D?device_id=dev_AB3D7K9M" \
+     -H "X-Device-Token: <管理员 token>"
 ```
 
-错误码：`400` 分享码格式/有效期非法 · `404` 分享码不存在 · `410` 已过期（响应同时删除文件） · `413` 超过单文件上限。
+### 设备组：谁能发给谁
+
+* 任何**已登记设备**都能建组，创建者就是管理员（`owner`）；谁拿到组 id 谁就能加入——组 id 本身就是邀请凭证，没有单独的邀请流程。
+* 一台设备可以加入多个组；一个组里所有人互相可见、可以互传。
+* 管理员可移除组内任意成员、改名、解散组；任何成员可自己退出；管理员自己不能用「退出」（会提示先解散）。
+* **投递规则**：必须实名（带 `from_device_id` + 正确令牌），且每台目标都与自己至少同处一个组，否则
+  `403 not_in_same_group`（响应里说明是谁不在组里）；未登记/令牌不对则是 `403 needs_device`。整单校验通过才落盘。
+* 例外：**发给自己**（丢进自己的收件箱）不需要组；**只用分享码**那条路也完全不要求登记，谁都能用。
+* 设备页/发送面板只显示「自己 + 同组设备」，未登记的访客看不到任何设备名单。
+* 限额：一台设备最多建 `MAX_GROUPS_PER_DEVICE`（默认 20）个组，一个组最多 `MAX_GROUP_MEMBERS`（默认 50）台设备。
+
+错误码：`400` 分享码格式/有效期非法 · `403` 非设备/不同组 · `404` 分享码或设备组不存在 · `409` 组满/组数超限/管理员要先解散 · `410` 已过期（响应同时删除文件） · `413` 超过单文件上限。
 错误体统一为 `{"detail": {"error": "...", "message": "..."}}`。
 
 ## 配置（环境变量）
@@ -214,8 +249,13 @@ uv venv /tmp/svgvenv && uv pip install --python /tmp/svgvenv/bin/python cairosvg
 ## 测试
 
 ```bash
-.venv/bin/python -m pytest -q                 # 112 个用例：分享码取件 + 设备互传
+.venv/bin/python -m pytest -q                 # 181 个用例：分享码取件 + 设备互传 + 设备组与投递权限
 .venv/bin/python scripts/check_frontend.py    # 静态检查：DOM id / sprite / emoji / 标签页→面板映射
+
+# 对着真实服务端跑的自检（本机与公网各一遍；会自己登记临时设备并在跑完清理）
+.venv/bin/python scripts/live_groups_check.py         # 设备组：建/加入/退出/移除/解散 + 投递授权
+.venv/bin/python scripts/live_device_transfer_check.py # 设备互传全链路（含组外投递被拒）
+.venv/bin/python scripts/live_text_check.py            # 发文本（分享码 + 投递）
 
 # 真 DOM 测试：用 jsdom 加载 index.html 并执行 app.js，模拟点击标签页与发送流程
 cd scripts && npm install && node dom_test.js
@@ -229,7 +269,10 @@ cd scripts && npm install && node dom_test.js
 过期后文件与元数据都被删除、后台清理协程真跑一遍、路径穿越文件名被中和、
 磁盘文件名不含原始名字、删除接口幂等；设备侧覆盖令牌鉴权（无/错/未知设备 403/404）、
 一次投递多台设备、收件箱隔离与已读、过期后收件箱清空、注销设备级联删记录、
-不活跃设备回收、投递目标不存在/超上限/空目标等边界。
+不活跃设备回收、投递目标不存在/超上限/空目标等边界；设备组侧覆盖
+建组/组 id 形态与粘贴容错、幂等加入、组满、成员名单仅组内可见、退出/移除/改名/解散的权限边界、
+管理员注销即解散、以及投递授权（未登记 403 needs_device、不同组 403 not_in_same_group、
+一台不合格整单不落盘、发给自己不需要组、分享码那条路不要求登记）。
 
 ## 部署建议
 

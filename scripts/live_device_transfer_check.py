@@ -61,7 +61,9 @@ def multipart(fields, file_part=None, filename=None, content_type="application/o
         for name, value in fields:
             if value:
                 out += f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
-        out += f"\r\n--{boundary}--\r\n".encode()
+        # 收尾不要再多一个 CRLF：每个字段块自己已经以 CRLF 结束，多出来的那个会
+        # 被解析成**最后一个字段值的一部分**（如 from_device_id 带上 \r\n 就再也匹配不到设备）。
+        out += f"--{boundary}--\r\n".encode()
     else:
         for name, value in fields:
             if value:
@@ -70,10 +72,11 @@ def multipart(fields, file_part=None, filename=None, content_type="application/o
     return out, {"Content-Type": f"multipart/form-data; boundary={boundary}"}
 
 
-print("== 1. 登记两台测试设备（App 的 POST /api/devices） ==")
-_, before_devices = call("GET", "/api/devices")
-before_count = before_devices.get("count")
-print(f"  跑之前的设备数：{before_count}（跑完必须回到这个数）")
+print("== 1. 登记两台测试设备 + 建一个设备组（App 的 POST /api/devices、POST /api/groups） ==")
+_, before_stats = call("GET", "/api/stats")
+before_count = before_stats.get("devices")
+before_groups = before_stats.get("groups")
+print(f"  跑之前的设备数：{before_count}、设备组数：{before_groups}（跑完都必须回到这两个数）")
 sender_name = f"测试发送机{uuid.uuid4().hex[:4]}"
 target_name = f"测试接收机{uuid.uuid4().hex[:4]}"
 status, sender = call("POST", "/api/devices", body=json.dumps({"name": sender_name}).encode(),
@@ -84,6 +87,46 @@ status, target = call("POST", "/api/devices", body=json.dumps({"name": target_na
 check("接收机登记 201", status == 201, f"id={target.get('id')}")
 check("返回体含 id/name/token", all(sender.get(k) for k in ("id", "name", "token")))
 check("公开字段（不含令牌哈希）", "token_hash" not in sender and "idle_seconds" in sender)
+
+# 投递规则（v1.13 起）：必须实名 + 每台目标都与自己同组，所以先把两台设备放进一个组
+status, created = call("POST", "/api/groups", token=sender["token"],
+                       body=json.dumps({"device_id": sender["id"], "name": "自检设备组"}).encode(),
+                       headers={"Content-Type": "application/json"})
+group_id = (created.get("group") or {}).get("id", "")
+check("发送机建组 201", status == 201, f"id={group_id} name={(created.get('group') or {}).get('name')}")
+check("组 id 是 grp_ + 12 位（跟 8 位分享码区分）",
+      group_id.startswith("grp_") and len(group_id) == 16, group_id)
+status, joined = call("POST", f"/api/groups/{group_id}/join", token=target["token"],
+                      body=json.dumps({"device_id": target["id"]}).encode(),
+                      headers={"Content-Type": "application/json"})
+check("接收机凭组 id 加入 201", status == 201, f"joined={joined.get('joined')}")
+status, group_again = call("POST", f"/api/groups/{group_id}/join", token=target["token"],
+                           body=json.dumps({"device_id": target["id"]}).encode(),
+                           headers={"Content-Type": "application/json"})
+check("重复加入幂等（already_member）", status == 200 and group_again.get("already_member") is True)
+status, listing = call("GET", f"/api/devices?device_id={sender['id']}", token=sender["token"])
+check("设备页只列同组设备（自己 + 接收机）",
+      [d["name"] for d in listing.get("devices", [])] == [sender_name, target_name],
+      str([d["name"] for d in listing.get("devices", [])]))
+status, stranger_view = call("GET", "/api/devices")
+check("不带令牌看不到任何设备名单", stranger_view.get("count") == 0 and stranger_view.get("devices") == [])
+
+print("== 1b. 组外投递必须被拒（v1.13 收紧） ==")
+outsider_name = f"测试外人{uuid.uuid4().hex[:4]}"
+_, outsider = call("POST", "/api/devices", body=json.dumps({"name": outsider_name}).encode(),
+                   headers={"Content-Type": "application/json"})
+body, headers = multipart([("targets", target["id"]), ("from_device_id", outsider["id"])],
+                          file_part=True, filename="越权.txt", content_type="text/plain", payload=b"nope")
+status, refuse = call("POST", "/api/transfers", token=outsider["token"], body=body, headers=headers)
+check("不同组投递被拒 403 not_in_same_group",
+      status == 403 and (refuse.get("detail") or {}).get("error") == "not_in_same_group",
+      f"HTTP {status} {(refuse.get('detail') or {}).get('message')}")
+body, headers = multipart([("targets", target["id"])], file_part=True, filename="匿名.txt",
+                          content_type="text/plain", payload=b"nope")
+status, refuse = call("POST", "/api/transfers", body=body, headers=headers)
+check("未登记设备投递被拒 403 needs_device",
+      status == 403 and (refuse.get("detail") or {}).get("error") == "needs_device", f"HTTP {status}")
+call("DELETE", f"/api/devices/{outsider['id']}", token=outsider["token"])
 
 print("== 2. 投递文件（App 的 POST /api/transfers：file + targets + from_device_id + note） ==")
 content = "设备互传联调测试内容\n".encode("utf-8") * 40
@@ -137,8 +180,11 @@ new_name = f"改名为{uuid.uuid4().hex[:4]}"
 status, res = call("PATCH", f"/api/devices/{sender['id']}", token=sender["token"],
                    body=json.dumps({"name": new_name}).encode(), headers={"Content-Type": "application/json"})
 check("改名 200", status == 200, f"name={res.get('name')}")
-status, devices = call("GET", "/api/devices")
+status, devices = call("GET", f"/api/devices?device_id={sender['id']}", token=sender["token"])
 check("设备列表里名字已更新", any(d["id"] == sender["id"] and d["name"] == new_name for d in devices.get("devices", [])))
+check("设备列表带共同组标签",
+      [g["name"] for g in next(d for d in devices.get("devices", []) if d["id"] == target["id"])["shared_groups"]]
+      == ["自检设备组"])
 
 print("== 8. 清理（注销测试设备 + 删测试文件） ==")
 status, res = call("DELETE", f"/api/devices/{target['id']}", token=target["token"])
@@ -150,7 +196,8 @@ check("测试文件已删除", status in (200, 204), f"HTTP {status}")
 status, stats = call("GET", "/api/stats")
 check("设备数回到跑之前", stats.get("devices") == before_count,
       f"before={before_count} after={stats.get('devices')} transfers={stats.get('transfers')}")
-check("没有留下测试设备", not any(d["name"].startswith("测试") for d in call("GET", "/api/devices")[1].get("devices", [])))
+check("设备组数回到跑之前（管理员注销 → 组跟着解散）",
+      stats.get("groups") == before_groups, f"before={before_groups} after={stats.get('groups')}")
 
 print(f"\n结果：{ok} 项通过，{fail} 项失败")
 raise SystemExit(1 if fail else 0)

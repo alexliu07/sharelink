@@ -9,14 +9,22 @@ GET    /api/download/{code}               凭分享码下载（过期返回 410 
 DELETE /api/files/{code}                  提前取消分享（分享码即凭证）
 
 POST   /api/devices                       把本设备加入设备列表，返回设备 id 与令牌（仅此一次）
-GET    /api/devices                       设备列表（公开，供选择投递目标）
+GET    /api/devices                       同组设备列表（带令牌：自己 + 同组；匿名不再列出名单）
 PATCH  /api/devices/{id}                  改设备名（需令牌）
 DELETE /api/devices/{id}                  注销设备（需令牌）
 GET    /api/devices/{id}/inbox            我的收件箱（需令牌）：别人发来的文件与过期时间
 POST   /api/devices/{id}/inbox/seen       收件箱标为已读（需令牌）
 DELETE /api/devices/{id}/inbox/{code}     从自己的收件箱移掉一条（需令牌）
 
-POST   /api/transfers                     发送至设备（multipart：file + targets 列表）
+POST   /api/transfers                     发送至设备（multipart：file + targets 列表；需实名 + 同组）
+POST   /api/groups                        建设备组（创建者即管理员）
+GET    /api/groups                        我加入的设备组
+GET    /api/groups/{gid}                  组详情与成员（仅组内可见）
+POST   /api/groups/{gid}/join             凭组 id 加入（幂等）
+POST   /api/groups/{gid}/leave            自己退出（管理员只能解散）
+PATCH  /api/groups/{gid}                  改组名（管理员）
+DELETE /api/groups/{gid}                  解散组（管理员）
+DELETE /api/groups/{gid}/members/{did}    移除成员（管理员）
 POST   /api/share-target                  安卓「分享 → ShareLink」的落地页（收文件/文本后 303 回首页并带分享码）
 
 GET    /api/stats                         站点统计
@@ -41,7 +49,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.datastructures import UploadFile as StarletteUploadFile  # fastapi.UploadFile 是它的子类，multipart 解析出的是父类实例
 
-from . import cleanup, codes, config, db, devices, storage
+from . import cleanup, codes, config, db, devices, groups, storage
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -179,6 +187,36 @@ def _sender_identity(
         if candidate and devices.verify_token(candidate, token):
             sender = candidate
     return sender, devices.clean_device_name(sender.name if sender else (from_name or "匿名设备"))
+
+
+def _require_sender(from_device_id: Optional[str], token: Optional[str]) -> db.DeviceRecord:
+    """投递给设备必须**实名**：设备组是授权单位，匿名设备根本没有组可谈。"""
+    candidate = db.get_device(from_device_id) if from_device_id else None
+    if candidate is None or not devices.verify_token(candidate, token):
+        raise _error(
+            403,
+            "needs_device",
+            "投递给设备需要先登记本设备并加入设备组；只想把东西给对方（不需要组）就用「生成分享码」，让对方凭码取件",
+        )
+    return candidate
+
+
+def _ensure_same_group(sender: db.DeviceRecord, targets: List[db.DeviceRecord]) -> None:
+    """只能发给同组设备：不同组的直接拒绝，并把"谁不在组里"说清楚。
+
+    例外：发给自己（把东西丢进自己的收件箱）不需要组——没有第三方参与。
+    """
+    strangers = [
+        t for t in targets if t.id != sender.id and not db.list_shared_groups(sender.id, t.id)
+    ]
+    if strangers:
+        names = "、".join(t.name for t in strangers)
+        raise _error(
+            403,
+            "not_in_same_group",
+            f"只能发给同一个设备组里的设备：{names} 和「{sender.name}」不在一个组"
+            "（可以先建组、或用对方给的组 id 加入）",
+        )
 
 
 def _deliver(
@@ -347,14 +385,38 @@ def register_device(
 
 
 @app.get("/api/devices")
-def list_devices():
+def list_devices(
+    device_id: Optional[str] = None,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """设备页/发送面板用：带本设备 id + 令牌时只返回「自己 + 同组设备」（每台附上共同组）。
+
+    不带令牌时**不再对外列出设备名单**：以前谁都能看到全部设备、给任意设备发东西，
+    现在没有组就没有可选项（想跨设备收文件仍可走「分享码」）。
+    """
     now = db.utcnow()
+    viewer = db.get_device(device_id) if device_id else None
+    if viewer is None or not devices.verify_token(viewer, x_device_token):
+        return {
+            "count": 0,
+            "devices": [],
+            "scope": "unregistered",
+            "hint": "登记本设备并加入设备组后，这里只显示同组的设备",
+        }
+
+    peer_ids = set(db.list_peer_device_ids(viewer.id))
     items = []
-    for device in db.list_devices(now):
+    for device in [viewer] + [d for d in db.list_devices(now) if d.id in peer_ids]:
         item = device.to_public_dict(now)
         item["inbox_count"] = db.count_device_inbox(device.id)
+        item["is_self"] = device.id == viewer.id
+        item["shared_groups"] = (
+            []  # 自己跟自己没有"共同组"；自己的组看「设备组」区块
+            if item["is_self"]
+            else [{"id": group.id, "name": group.name} for group in db.list_shared_groups(viewer.id, device.id)]
+        )
         items.append(item)
-    return {"count": len(items), "devices": items}
+    return {"count": len(items), "devices": items, "scope": "groups", "self_id": viewer.id}
 
 
 @app.patch("/api/devices/{device_id}")
@@ -455,9 +517,15 @@ def send_to_devices(
     from_name: Optional[str] = Form(None, description="发送者名称（未登记设备时使用）"),
     x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
 ):
-    """把一份文件投递给一台或多台设备：文件只存一份，每台目标设备各有一条投递记录。"""
+    """把一份文件投递给一台或多台设备：文件只存一份，每台目标设备各有一条投递记录。
+
+    规则：必须实名（带本设备 id + 令牌），且每台目标都与自己同处一个设备组。
+    ``from_name`` 保留只为兼容老客户端，实际显示名一律用设备名。
+    """
     target_devices = _resolve_targets((targets or "").split(","))
-    sender, sender_name = _sender_identity(from_device_id, from_name, x_device_token)
+    sender = _require_sender(from_device_id, x_device_token)
+    _ensure_same_group(sender, target_devices)
+    sender_name = devices.clean_device_name(sender.name)
     clean_note = devices.clean_note(note)
 
     record, seconds = _save_and_record(file, ttl_seconds if ttl_seconds is not None else ttl)
@@ -518,7 +586,14 @@ def send_text(
         raise _error(413, "too_long", f"文本太大（{len(body)} 字节），上限 {config.MAX_TEXT_BYTES} 字节")
 
     target_devices = _resolve_targets(payload.targets) if payload.targets else []
-    sender, sender_name = _sender_identity(payload.from_device_id, payload.from_name, x_device_token)
+    if target_devices:
+        # 投递给设备：实名 + 同组（跟发文件一个规矩）
+        sender: Optional[db.DeviceRecord] = _require_sender(payload.from_device_id, x_device_token)
+        _ensure_same_group(sender, target_devices)
+        sender_name = devices.clean_device_name(sender.name)
+    else:
+        # 只生成分享码：不要求登记，谁都能用
+        sender, sender_name = _sender_identity(payload.from_device_id, payload.from_name, x_device_token)
     clean_note = devices.clean_note(payload.note)
 
     record, seconds = _store(
@@ -545,6 +620,212 @@ def send_text(
     result["targets"] = [{"id": t.id, "name": t.name} for t in target_devices]
     result["transfer_count"] = len(target_devices)
     return JSONResponse(result, status_code=201)
+
+
+# ---------------------------------------------------------------- 设备组
+class GroupCreate(BaseModel):
+    """建组：操作者设备 id + 组名（可留空，默认「未命名设备组」）。"""
+
+    device_id: str = Field(..., description="操作者（未来的管理员）设备 id")
+    name: Optional[str] = Field(default=None, description="组名")
+
+
+class GroupActor(BaseModel):
+    """只带操作者设备 id 的请求体（加入 / 退出）。"""
+
+    device_id: str = Field(..., description="操作者设备 id")
+
+
+class GroupRename(BaseModel):
+    """改组名（仅管理员）。"""
+
+    device_id: str = Field(..., description="操作者设备 id")
+    name: Optional[str] = Field(default=None, description="新组名")
+
+
+def _group_or_404(raw_group_id: str) -> db.GroupRecord:
+    group = db.get_group(groups.normalize_group_id(raw_group_id))
+    if group is None:
+        raise _error(404, "group_not_found", "设备组不存在：组 id 可能抄错了，也可能已经被管理员解散")
+    return group
+
+
+def _group_dict(group: db.GroupRecord, device_id: Optional[str]) -> dict:
+    """组的对外表示（附成员数、我的角色、管理员名，方便界面直接渲染）。"""
+    owner = db.get_device(group.owner_device_id)
+    return {
+        **group.to_public_dict(),
+        "owner_name": owner.name if owner else "（已注销）",
+        "member_count": db.group_member_count(group.id),
+        "my_role": db.group_member_role(group.id, device_id) if device_id else None,
+        "is_owner": groups.is_owner(group, device_id),
+    }
+
+
+@app.post("/api/groups", status_code=201)
+def create_group(
+    payload: GroupCreate,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """建设备组：创建者即管理员。组 id（``grp_`` + 12 位）由服务端生成，随时可在列表里再看。"""
+    owner = _device_or_403(payload.device_id, x_device_token)
+    if db.count_groups_owned(owner.id) >= config.MAX_GROUPS_PER_DEVICE:
+        raise _error(409, "too_many_groups", f"一台设备最多创建 {config.MAX_GROUPS_PER_DEVICE} 个设备组")
+
+    now = db.to_iso(db.utcnow())
+    record = db.insert_group(
+        db.GroupRecord(
+            id=groups.generate_group_id(db.group_id_exists),
+            name=groups.clean_group_name(payload.name),
+            owner_device_id=owner.id,
+            created_at=now,
+        )
+    )
+    db.add_group_member(record.id, owner.id, "owner", now)
+    logger.info("设备 %s（%s）创建了设备组 %s（%s）", owner.id, owner.name, record.id, record.name)
+    return JSONResponse(
+        {
+            "group": _group_dict(record, owner.id),
+            "share_hint": "把这个组 id 发给别的设备，对方在「设备组 → 加入」里粘贴就能进组",
+        },
+        status_code=201,
+    )
+
+
+@app.get("/api/groups")
+def list_my_groups(
+    device_id: str,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """我加入的设备组（我是管理员的排前面）。"""
+    me = _device_or_403(device_id, x_device_token)
+    items = [_group_dict(group, me.id) for group in db.list_groups_for_device(me.id)]
+    items.sort(key=lambda item: (not item["is_owner"], item["created_at"]))
+    return {
+        "count": len(items),
+        "groups": items,
+        "limits": {
+            "max_groups_per_device": config.MAX_GROUPS_PER_DEVICE,
+            "max_group_members": config.MAX_GROUP_MEMBERS,
+        },
+    }
+
+
+@app.get("/api/groups/{group_id}")
+def group_detail(
+    group_id: str,
+    device_id: str,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """组详情 + 成员名单；只有组内成员看得到（非成员能凭组 id 加入，但看不到名单）。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(device_id, x_device_token)
+    if db.group_member_role(group.id, me.id) is None:
+        raise _error(403, "not_a_member", "你不在这个设备组里；知道组 id 就能加入，加入后才能看到成员")
+    now = db.utcnow()
+    return {
+        "group": _group_dict(group, me.id),
+        "members": [{**member, "is_self": member["id"] == me.id} for member in db.list_group_members(group.id, now)],
+    }
+
+
+@app.post("/api/groups/{group_id}/join")
+def join_group(
+    group_id: str,
+    payload: GroupActor,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """凭组 id 加入（幂等：已经在里面就返回 ``already_member``）。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(payload.device_id, x_device_token)
+    if db.group_member_role(group.id, me.id) is not None:
+        return {
+            "joined": False,
+            "already_member": True,
+            "group": _group_dict(group, me.id),
+            "message": "你已经在这个设备组里了",
+        }
+    if db.group_member_count(group.id) >= config.MAX_GROUP_MEMBERS:
+        raise _error(409, "group_full", f"这个设备组已满（上限 {config.MAX_GROUP_MEMBERS} 台设备）")
+    db.add_group_member(group.id, me.id, "member", db.to_iso(db.utcnow()))
+    logger.info("设备 %s（%s）加入了设备组 %s（%s）", me.id, me.name, group.id, group.name)
+    return JSONResponse(
+        {"joined": True, "already_member": False, "group": _group_dict(group, me.id)}, status_code=201
+    )
+
+
+@app.post("/api/groups/{group_id}/leave")
+def leave_group(
+    group_id: str,
+    payload: GroupActor,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """自己退出某个组；管理员不能用这个（退出即解散，请走 DELETE /api/groups/{id}）。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(payload.device_id, x_device_token)
+    role = db.group_member_role(group.id, me.id)
+    if role is None:
+        raise _error(404, "not_a_member", "你本来就不在这个设备组里")
+    if role == "owner":
+        raise _error(409, "owner_must_dissolve", "你是这个组的管理员：管理员退出会解散整个组，请用「解散设备组」")
+    db.remove_group_member(group.id, me.id)
+    logger.info("设备 %s（%s）退出了设备组 %s（%s）", me.id, me.name, group.id, group.name)
+    return {"left": True, "group_id": group.id, "name": group.name}
+
+
+@app.delete("/api/groups/{group_id}/members/{target_device_id}")
+def remove_group_member(
+    group_id: str,
+    target_device_id: str,
+    device_id: str,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """管理员把某台设备移出组（管理员自己不能被移除，要退出只能解散）。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(device_id, x_device_token)
+    if not groups.is_owner(group, me.id):
+        raise _error(403, "not_owner", "只有这个组的管理员能移除成员")
+    if target_device_id == me.id:
+        raise _error(409, "owner_cannot_be_removed", "管理员不能被移除；要结束这个组就用「解散设备组」")
+    target = db.get_device(target_device_id)
+    if target is None or db.group_member_role(group.id, target.id) is None:
+        raise _error(404, "not_a_member", "这台设备不在该设备组里")
+    db.remove_group_member(group.id, target.id)
+    logger.info("设备组 %s：管理员 %s 移除了 %s（%s）", group.id, me.name, target.name, target.id)
+    return {"removed": True, "group_id": group.id, "device_id": target.id, "name": target.name}
+
+
+@app.patch("/api/groups/{group_id}")
+def rename_group(
+    group_id: str,
+    payload: GroupRename,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """改组名（仅管理员）。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(payload.device_id, x_device_token)
+    if not groups.is_owner(group, me.id):
+        raise _error(403, "not_owner", "只有这个组的管理员能改组名")
+    name = groups.clean_group_name(payload.name)
+    db.rename_group(group.id, name)
+    return {"group": _group_dict(db.get_group(group.id) or group, me.id)}
+
+
+@app.delete("/api/groups/{group_id}")
+def dissolve_group(
+    group_id: str,
+    device_id: str,
+    x_device_token: Optional[str] = Header(default=None, alias=DEVICE_TOKEN_HEADER),
+):
+    """解散组（仅管理员）：删组 + 成员关系；已经投递到收件箱的文件不受影响。"""
+    group = _group_or_404(group_id)
+    me = _device_or_403(device_id, x_device_token)
+    if not groups.is_owner(group, me.id):
+        raise _error(403, "not_owner", "只有这个组的管理员能解散它")
+    member_count = db.group_member_count(group.id)
+    db.delete_group(group.id)
+    logger.info("设备组 %s（%s）被管理员 %s 解散（%d 台设备）", group.id, group.name, me.name, member_count)
+    return {"dissolved": True, "group_id": group.id, "name": group.name, "member_count": member_count}
 
 
 # ---------------------------------------------------------------- 安卓分享面板
@@ -621,6 +902,10 @@ def site_stats():
         "max_targets_per_send": config.MAX_TARGETS_PER_SEND,
         "max_upload_mb": config.MAX_UPLOAD_MB,
         "max_text_chars": config.MAX_TEXT_CHARS,
+        "groups": db_stats["groups"],
+        "group_id_length": config.GROUP_ID_LENGTH,
+        "max_groups_per_device": config.MAX_GROUPS_PER_DEVICE,
+        "max_group_members": config.MAX_GROUP_MEMBERS,
         "default_ttl_seconds": config.DEFAULT_TTL_SECONDS,
         "min_ttl_seconds": config.MIN_TTL_SECONDS,
         "max_ttl_seconds": config.MAX_TTL_SECONDS,

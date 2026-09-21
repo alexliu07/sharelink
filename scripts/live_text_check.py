@@ -53,8 +53,8 @@ def call(base, method, path, payload=None, token=None):
 def run(base):
     print(f"\n=== {base} ===")
     created_codes, temp_device = [], None
-    status, raw, _ = call(base, "GET", "/api/devices")
-    devices_before = json.loads(raw)["count"] if status == 200 else None
+    status, raw, _ = call(base, "GET", "/api/stats")
+    devices_before = json.loads(raw)["devices"] if status == 200 else None
 
     # 1) 纯文本 → 分享码
     status, raw, _ = call(base, "POST", "/api/texts", {"text": TEXT, "ttl_seconds": 600})
@@ -129,8 +129,8 @@ def run(base):
         call(base, "DELETE", f"/api/files/{code_to_drop}")
     if temp_device:
         call(base, "DELETE", f"/api/devices/{temp_device['id']}", token=temp_device["token"])
-    status, raw, _ = call(base, "GET", "/api/devices")
-    devices_after = json.loads(raw)["count"] if status == 200 else None
+    status, raw, _ = call(base, "GET", "/api/stats")
+    devices_after = json.loads(raw)["devices"] if status == 200 else None
     check("跑完设备数回到跑前（没留垃圾设备）",
           devices_before == devices_after, f"before={devices_before} after={devices_after}")
 

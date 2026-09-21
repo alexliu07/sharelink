@@ -8,7 +8,7 @@ from datetime import timedelta
 
 import pytest
 
-from app import cleanup, config, db
+from app import cleanup, config, db, groups
 
 UA_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15"
 UA_WIN = (
@@ -30,7 +30,53 @@ def register(client, name=None, ua=UA_MAC) -> dict:
     return resp.json()
 
 
+def make_group(client, owner: dict, *members: dict, name: str = "测试组") -> dict:
+    """通过接口建一个设备组，并把 members 逐个加进去（返回组的公开信息）。"""
+    created = client.post("/api/groups", json={"device_id": owner["id"], "name": name}, headers=hdr(owner["token"]))
+    assert created.status_code == 201, created.text
+    group_id = created.json()["group"]["id"]
+    for member in members:
+        joined = client.post(f"/api/groups/{group_id}/join", json={"device_id": member["id"]},
+                             headers=hdr(member["token"]))
+        assert joined.status_code in (200, 201), joined.text
+    return created.json()["group"]
+
+
+def ensure_same_group(sender_id: str, target_ids) -> str:
+    """测试用的铺路函数：把发送方与目标设备放进同一个组（已经同组就复用）。
+
+    直接落库建组（目标设备在测试里只有 id、拿不到它们的令牌），等价于"对方拿组 id 加入"；
+    建设备组接口本身的规则由 tests/test_groups.py 从接口层覆盖。
+    """
+    devices = [db.get_device(target_id) for target_id in target_ids if target_id]
+    strangers = [d for d in devices if d is not None and not db.list_shared_groups(sender_id, d.id)]
+    existing = db.device_group_ids(sender_id)
+    if not strangers:
+        return existing[0] if existing else ""
+    now = db.to_iso(db.utcnow())
+    group_id = groups.generate_group_id(db.group_id_exists)
+    db.insert_group(db.GroupRecord(id=group_id, name="测试组", owner_device_id=sender_id, created_at=now))
+    db.add_group_member(group_id, sender_id, "owner", now)
+    for stranger in strangers:
+        db.add_group_member(group_id, stranger.id, "member", now)
+    return group_id
+
+
 def send(client, targets, content=b"payload", filename="a.txt", ttl="1h", token=None, **form):
+    """投递（multipart）。
+
+    投递现在必须「实名 + 同组」，所以这里自动铺路：没给令牌就造一台发送设备，
+    给了令牌就用 from_device_id 把发送方和目标设备放进同一个组。
+    组与权限规则本身另有 test_groups.py 专门覆盖。
+    """
+    target_ids = [targets] if isinstance(targets, str) else list(targets)
+    sender_id = form.get("from_device_id")
+    if token is None:
+        sender = register(client, "测试发送方")
+        token, sender_id = sender["token"], sender["id"]
+        form["from_device_id"] = sender_id
+    if sender_id:
+        ensure_same_group(sender_id, target_ids)
     data = {"targets": ",".join(targets) if isinstance(targets, (list, tuple)) else targets, "ttl": ttl}
     data.update({k: str(v) for k, v in form.items()})
     return client.post("/api/transfers", files={"file": (filename, io.BytesIO(content), "text/plain")},
@@ -78,12 +124,14 @@ class TestRegistration:
 
     def test_token_never_leaks_in_listing(self, client):
         device = register(client, "我的笔记本")
-        body = client.get("/api/devices").text
+        params = {"device_id": device["id"]}
+        body = client.get("/api/devices", params=params, headers=hdr(device["token"])).text
 
         assert device["token"] not in body
         assert "token" not in body
-        listed = client.get("/api/devices").json()["devices"][0]
-        assert set(listed) == {"id", "name", "created_at", "last_seen_at", "idle_seconds", "inbox_count"}
+        listed = client.get("/api/devices", params=params, headers=hdr(device["token"])).json()["devices"][0]
+        assert set(listed) == {"id", "name", "created_at", "last_seen_at", "idle_seconds", "inbox_count",
+                               "is_self", "shared_groups"}
 
     def test_token_stored_hashed(self, client):
         device = register(client)
@@ -93,20 +141,38 @@ class TestRegistration:
 
 
 class TestDeviceList:
-    def test_lists_most_recent_first(self, client):
-        first = register(client, "先登记的")
-        second = register(client, "后登记的")
-        listed = client.get("/api/devices").json()
+    """设备页只显示「自己 + 同组设备」；不带令牌不再对外列出任何设备名单。"""
 
-        assert listed["count"] == 2
-        names = [d["name"] for d in listed["devices"]]
-        assert names[0] == second["name"] or names == [first["name"], second["name"]] or set(names) == {"先登记的", "后登记的"}
+    def test_anonymous_sees_no_roster(self, client):
+        register(client, "别人的设备")
+
+        listed = client.get("/api/devices").json()
+        assert listed["count"] == 0
+        assert listed["devices"] == []
+        assert listed["scope"] == "unregistered"
+
+    def test_shows_only_same_group_devices(self, client):
+        me, mate, stranger = register(client, "我"), register(client, "同组的"), register(client, "不同组的")
+        make_group(client, me, mate, name="家里的设备")
+
+        params = {"device_id": me["id"]}
+        listed = client.get("/api/devices", params=params, headers=hdr(me["token"])).json()
+
+        assert listed["count"] == 2                      # 我 + 同组的一台，不同组的不出现
+        assert [d["name"] for d in listed["devices"]] == ["我", "同组的"]
+        assert listed["devices"][0]["is_self"] is True
+        assert listed["devices"][0]["shared_groups"] == []            # 自己跟自己没有"共同组"
+        assert [g["name"] for g in listed["devices"][1]["shared_groups"]] == ["家里的设备"]
 
     def test_inbox_count_included(self, client):
         sender, receiver = register(client, "发送方"), register(client, "收件方")
-        assert send(client, [receiver["id"]], token=sender["token"]).status_code == 201
+        make_group(client, sender, receiver)
+        assert send(client, [receiver["id"]], token=sender["token"],
+                    from_device_id=sender["id"]).status_code == 201
 
-        listed = {d["id"]: d for d in client.get("/api/devices").json()["devices"]}
+        params = {"device_id": sender["id"]}
+        listed = {d["id"]: d for d in client.get("/api/devices", params=params,
+                                                 headers=hdr(sender["token"])).json()["devices"]}
         assert listed[receiver["id"]]["inbox_count"] == 1
         assert listed[sender["id"]]["inbox_count"] == 0
 
@@ -144,24 +210,33 @@ class TestTransfers:
 
     def test_duplicate_targets_deduped(self, client):
         sender, receiver = register(client, "发送方"), register(client, "收件方")
-        resp = send(client, [receiver["id"], receiver["id"], f" {receiver['id']} "], token=sender["token"])
+        resp = send(client, [receiver["id"], receiver["id"], f" {receiver['id']} "], token=sender["token"],
+                    from_device_id=sender["id"])
         assert resp.json()["transfer_count"] == 1
 
-    def test_sender_without_device_is_anonymous(self, client):
+    def test_delivery_requires_registered_device(self, client):
+        """投递给设备必须实名：没有设备令牌 → 403 needs_device（组才是授权单位）。"""
         receiver = register(client, "收件方")
-        resp = send(client, [receiver["id"]], from_name="办公室的电脑")
-        assert resp.json()["from_name"] == "办公室的电脑"
-        assert resp.json()["from_device_id"] is None
 
-        resp = send(client, [receiver["id"]])
-        assert resp.json()["from_name"] == "匿名设备"
+        resp = client.post(
+            "/api/transfers",
+            files={"file": ("a.txt", io.BytesIO(b"payload"), "text/plain")},
+            data={"targets": receiver["id"], "ttl": "1h", "from_name": "办公室的电脑"},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"] == "needs_device"
+        assert db.stats()["transfers"] == 0
 
-    def test_wrong_token_does_not_impersonate(self, client):
+        # 而不登记也能用的路是"只生成分享码"
+        assert client.post("/api/upload", files={"file": ("a.txt", b"payload", "text/plain")},
+                           data={"ttl": "1h"}).status_code == 201
+
+    def test_wrong_token_is_not_a_sender(self, client):
+        """令牌不对 = 不是这台设备：不会顶着它的名字投递，而是直接拒绝。"""
         sender, receiver = register(client, "发送方"), register(client, "收件方")
         resp = send(client, [receiver["id"]], token="forged-token", from_device_id=sender["id"], from_name="冒充者")
-        assert resp.status_code == 201
-        assert resp.json()["from_name"] == "冒充者"      # 令牌不对 → 按未登记设备处理
-        assert resp.json()["from_device_id"] is None
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"] == "needs_device"
 
     def test_download_link_works(self, client):
         receiver = register(client, "收件方")
@@ -210,6 +285,7 @@ class TestTransfers:
 class TestInbox:
     def test_only_own_files_visible(self, client):
         sender, alice, bob = register(client, "发送方"), register(client, "Alice"), register(client, "Bob")
+        make_group(client, sender, alice, bob)
         send(client, [alice["id"]], b"for-alice", "alice.txt", token=sender["token"], from_device_id=sender["id"])
         send(client, [bob["id"]], b"for-bob", "bob.txt", token=sender["token"], from_device_id=sender["id"])
 
@@ -299,6 +375,7 @@ class TestAuth:
 
     def test_unregister_requires_token_and_cascades(self, client):
         sender, receiver = register(client, "发送方"), register(client, "收件方")
+        make_group(client, sender, receiver)
         send(client, [receiver["id"]], token=sender["token"], from_device_id=sender["id"])
 
         assert client.delete(f"/api/devices/{sender['id']}", headers=hdr(receiver["token"])).status_code == 403
@@ -307,7 +384,10 @@ class TestAuth:
         assert db.get_device(sender["id"]) is None
         assert db.stats()["devices"] == 1
         assert inbox(client, receiver)["count"] == 1  # 收件方不受影响
-        assert client.get("/api/devices").json()["count"] == 1
+        # 管理员（=创建者）注销 → 组跟着解散，收件方在设备页只剩自己
+        params = {"device_id": receiver["id"]}
+        assert client.get("/api/devices", params=params, headers=hdr(receiver["token"])).json()["count"] == 1
+        assert db.stats()["groups"] == 0
 
 
 class TestExpiryAndPrune:
@@ -353,11 +433,14 @@ class TestExpiryAndPrune:
 
 
 def send_text(client, text, targets=None, ttl="1h", token=None, **extra):
-    """发文本（JSON 接口）。targets 省略 = 只生成分享码。"""
+    """发文本（JSON 接口）。targets 省略 = 只生成分享码（不要求登记）；给了 targets 就按投递规则铺路。"""
     payload = {"text": text, "ttl": ttl}
     if targets is not None:
         payload["targets"] = list(targets)
     payload.update(extra)
+    sender_id = extra.get("from_device_id")
+    if targets and sender_id and token:
+        ensure_same_group(sender_id, list(targets))
     return client.post("/api/texts", json=payload, headers=hdr(token))
 
 
@@ -416,6 +499,7 @@ class TestTexts:
 
     def test_deliver_text_to_device(self, client):
         sender, receiver = register(client, "发送方"), register(client, "收件方")
+        make_group(client, sender, receiver)
         resp = send_text(client, "周会要点：1) 改接口 2) 加测试", targets=[receiver["id"]],
                          token=sender["token"], from_device_id=sender["id"], note="看完回我")
 
@@ -444,12 +528,19 @@ class TestTexts:
         assert resp.json()["detail"]["error"] == "bad_target"
         assert len(list(config.DATA_DIR.glob("*"))) == 0
 
-    def test_wrong_token_does_not_impersonate(self, client):
+    def test_wrong_token_is_not_a_sender(self, client):
+        """投递文本同样要实名：令牌不对 → 403，而不是顶着别人的名字发出去。"""
         sender, receiver = register(client, "发送方"), register(client, "收件方")
-        payload = send_text(client, "hi", targets=[receiver["id"]], token="forged",
-                            from_device_id=sender["id"], from_name="冒充者").json()
-        assert payload["from_name"] == "冒充者"
-        assert payload["from_device_id"] is None
+        resp = send_text(client, "hi", targets=[receiver["id"]], token="forged",
+                         from_device_id=sender["id"], from_name="冒充者")
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"] == "needs_device"
+
+    def test_text_share_code_still_needs_no_device(self, client):
+        """只生成分享码这条路不要求登记（谁都能用）。"""
+        resp = send_text(client, "不需要登记也能发的文本")
+        assert resp.status_code == 201
+        assert resp.json()["from_device_id"] is None
 
     def test_ttl_seconds_wins_over_ttl(self, client):
         payload = send_text(client, "hi", ttl="7d", ttl_seconds=600).json()
