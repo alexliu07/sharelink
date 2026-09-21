@@ -382,6 +382,17 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .modal-actions .ghost { flex: 0 0 auto; }
 .modal-actions .primary { flex: 1; margin-top: 0; }
 
+/* ================= 装成应用（PWA）后的独立窗口适配 =================
+   iOS 用 black-translucent 状态栏时内容会顶到刘海下面，用安全区变量把内边距顶回来 */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
 .hidden { display: none !important; }
 
 @media (max-width: 520px) {

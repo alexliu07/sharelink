@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="ShareLink">
+  <title>ShareLink（自适应图标：图形缩到 62%，避开各启动器的裁切区）</title>
+  <defs>
+    <linearGradient id="sl-grad-m" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c8cff"/>
+      <stop offset="1" stop-color="#38d9c0"/>
+    </linearGradient>
+  </defs>
+  <!-- maskable 要求图形落在中心 80% 的安全区内，背景铺满整个画布 -->
+  <rect x="0" y="0" width="512" height="512" fill="url(#sl-grad-m)"/>
+  <g transform="translate(256 256) scale(0.85) translate(-256 -256)"
+     fill="none" stroke="#08101f" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M216 172h-36a84 84 0 0 0 0 168h36"/>
+    <path d="M296 172h36a84 84 0 0 1 0 168h-36"/>
+    <path d="M204 256h104"/>
+  </g>
+</svg>
