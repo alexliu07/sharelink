@@ -55,9 +55,16 @@ else:
             pwa_problems.append(f"manifest 缺少 {need} 图标（安卓安装条件）")
     if not any(i.get("purpose") == "maskable" for i in manifest.get("icons", [])):
         pwa_problems.append("manifest 没有 maskable 图标（安卓自适应图标会裁得很难看）")
-    for icon in manifest.get("icons", []):
-        if not (static / icon["src"]).exists():
-            pwa_problems.append(f"manifest 引用的图标不存在：{icon['src']}")
+    # 图标 URL 带 ?v=N 是刻意的：图标按 7 天缓存，换图标必须换 URL，否则手机/CF 都用旧的
+    def file_of(url: str) -> str:
+        return url.split("?")[0].split("#")[0].lstrip("./")
+
+    icon_urls = [icon["src"] for icon in manifest.get("icons", [])]
+    for url in icon_urls:
+        if not (static / file_of(url)).exists():
+            pwa_problems.append(f"manifest 引用的图标不存在：{url}")
+    if any("?" not in url for url in icon_urls):
+        pwa_problems.append("manifest 里图标 URL 没带版本串 ?v=N（改了图标会被 7 天缓存挡住）")
     if not manifest.get("share_target"):
         pwa_problems.append("manifest 没有 share_target（安卓分享面板入口）")
     else:
@@ -89,10 +96,12 @@ if "apple-touch-icon" not in html:
     pwa_problems.append("index.html 没有 apple-touch-icon（iOS 主屏图标）")
 else:
     match = re.search(r'rel="apple-touch-icon"[^>]*href="([^"]+)"', html)
-    if match and not (static / match.group(1)).exists():
+    if match and not (static / match.group(1).split("?")[0].lstrip("./")).exists():
         pwa_problems.append(f"apple-touch-icon 指向的文件不存在：{match.group(1)}")
-    elif match and match.group(1).endswith(".svg"):
+    elif match and match.group(1).split("?")[0].endswith(".svg"):
         pwa_problems.append("apple-touch-icon 指向 SVG —— iOS 只认 PNG")
+    elif match and "?" not in match.group(1):
+        pwa_problems.append("apple-touch-icon 的 URL 没带版本串 ?v=N（换了图标 iOS 不认新图）")
 
 dup_ids = sorted({i for i in html_ids if html.count(f'id="{i}"') > 1})
 EMOJI = re.compile('[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')

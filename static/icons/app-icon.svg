@@ -6,9 +6,10 @@
       <stop offset="1" stop-color="#38d9c0"/>
     </linearGradient>
   </defs>
-  <!-- 与 favicon.svg 同一套字形（64 网格 ×8 放大），保证标签页图标和应用图标一致 -->
-  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#sl-grad)"/>
-  <g fill="none" stroke="#08101f" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 安装用图标：白底铺满整块画布（方角，圆角交给各平台自己裁），链环用品牌渐变 -->
+  <!-- 与 favicon.svg 同一套字形（64 网格 ×8 放大），保证标签页图标、页内标记与应用图标一致 -->
+  <rect x="0" y="0" width="512" height="512" fill="#ffffff"/>
+  <g fill="none" stroke="url(#sl-grad)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
     <path d="M216 172h-36a84 84 0 0 0 0 168h36"/>
     <path d="M296 172h36a84 84 0 0 1 0 168h-36"/>
     <path d="M204 256h104"/>

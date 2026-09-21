@@ -6,8 +6,10 @@
       <stop offset="1" stop-color="#38d9c0"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="64" height="64" rx="15" fill="url(#sl-grad)"/>
-  <g fill="none" stroke="#08101f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 白底方块 + 品牌渐变链环；浅色描边让白底在白色标签栏里也有轮廓 -->
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="14.5"
+        fill="#ffffff" stroke="#e4e9f4" stroke-width="1.5"/>
+  <g fill="none" stroke="url(#sl-grad)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M27 21.5h-4.5a10.5 10.5 0 0 0 0 21H27"/>
     <path d="M37 21.5h4.5a10.5 10.5 0 0 1 0 21H37"/>
     <path d="M25.5 32h13"/>

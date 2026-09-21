@@ -150,6 +150,10 @@ uv venv /tmp/svgvenv && uv pip install --python /tmp/svgvenv/bin/python cairosvg
 /tmp/svgvenv/bin/python scripts/render-icons.py --sheet /tmp/icons.png   # --sheet 出一张裁切预览图
 ```
 
+**换图标时必须把 URL 的版本串一起 +1**（manifest 里 4 个 `?v=N` 和 index.html 的 `apple-touch-icon`），
+因为图标是按 `public, max-age=604800`（7 天）缓存的，不换 URL 的话 CF 和你手机都会继续用旧图；
+`check_frontend.py` 会检查这三处是否都带版本串。另外 iOS 的主屏图标是「添加到主屏幕」时抓的，换了图必须**删掉重加**。
+
 ## 测试
 
 ```bash
