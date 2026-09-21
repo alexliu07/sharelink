@@ -17,8 +17,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -41,6 +44,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 /**
  * ShareLink 安卓端：既能把别处分享来的文件上传成分享码，也能当一台设备（收件箱 + 定向投递给别的设备）。
@@ -194,21 +198,7 @@ public class MainActivity extends Activity {
         }
         // 登记过设备：先问一句要发给谁（不选＝只拿分享码），省得大文件传两遍
         new Thread(() -> {
-            final List<String[]> others = new ArrayList<>();
-            try {
-                JSONObject res = new JSONObject(Api.get(Api.URL_DEVICES, null));
-                JSONArray arr = res.optJSONArray("devices");
-                if (arr != null) {
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject item = arr.getJSONObject(i);
-                        if (!deviceId().equals(item.optString("id"))) {
-                            others.add(new String[]{item.optString("id"), item.optString("name")});
-                        }
-                    }
-                }
-            } catch (Exception ignored) {
-                // 拿不到设备列表就退回"只拿分享码"，不让分享流程失败
-            }
+            final List<String[]> others = fetchOtherDevices();
             ui.post(() -> {
                 if (others.isEmpty()) {
                     toast("没有别的设备，直接生成分享码");   // 免得以为"怎么没弹选择框"
@@ -221,6 +211,37 @@ public class MainActivity extends Activity {
     }
 
     private void askDestination(final Payload payload, final List<String[]> others) {
+        chooseDevices(others,
+                (ids, names) -> doUpload(payload, ids, names),
+                () -> doUpload(payload, null, null),
+                () -> showHome());
+    }
+
+    /** 后台拉设备列表（排除自己）；出错就当没有别的设备，不让发送流程崩掉。 */
+    private List<String[]> fetchOtherDevices() {
+        final List<String[]> others = new ArrayList<>();
+        try {
+            JSONObject res = new JSONObject(Api.get(Api.URL_DEVICES, null));
+            JSONArray arr = res.optJSONArray("devices");
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject item = arr.getJSONObject(i);
+                    if (!deviceId().equals(item.optString("id"))) {
+                        others.add(new String[]{item.optString("id"), item.optString("name")});
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // 拿不到设备列表 → 退回"只拿分享码"
+        }
+        return others;
+    }
+
+    /** 文件/文本共用的目标选择框（自建勾选列表 + 不做静默降级，见 v1.8 的说明）。 */
+    private void chooseDevices(final List<String[]> others,
+                               final BiConsumer<List<String>, List<String>> onSend,
+                               final Runnable onCodeOnly,
+                               final Runnable onCancel) {
         // 自己搭勾选列表：不同 ROM 上 setMultiChoiceItems 的列表可能出现整片不显示（高度塌成 0），
         // 那样用户只看到标题和按钮，点「确定」就静默变成"只拿分享码"（== 什么都没发出去）。
         // 另外这里刻意不设文字颜色：对话框主题可能是深色也可能是浅色，跟着主题走才不会看不见。
@@ -249,8 +270,8 @@ public class MainActivity extends Activity {
                 .setTitle("发给哪些设备？（共 " + others.size() + " 台）")
                 .setView(scroller)
                 .setPositiveButton("发送给选中的设备", null)
-                .setNeutralButton("只拿分享码", (d, w) -> doUpload(payload, null, null))
-                .setNegativeButton("取消", (d, w) -> showHome())
+                .setNeutralButton("只拿分享码", (d, w) -> onCodeOnly.run())
+                .setNegativeButton("取消", (d, w) -> onCancel.run())
                 .create();
         dialog.show();
         // 「发送」按钮自己接管：一台都没勾时不静默上传、也不关对话框
@@ -268,7 +289,7 @@ public class MainActivity extends Activity {
                 return;
             }
             dialog.dismiss();
-            doUpload(payload, ids, names);
+            onSend.accept(ids, names);
         });
     }
 
@@ -344,7 +365,8 @@ public class MainActivity extends Activity {
         big.setLetterSpacing(0.12f);
         big.setTextIsSelectable(true);
         card.addView(big);
-        card.addView(line(Api.humanSize(json.optLong("size")) + " · " + json.optString("filename")
+        card.addView(line((json.optBoolean("is_text") ? "文本 · " + json.optInt("chars") + " 字符 · " : "")
+                + Api.humanSize(json.optLong("size")) + " · " + json.optString("filename")
                 + (json.optString("ttl_human").isEmpty() ? "" : " · 有效期 " + json.optString("ttl_human")),
                 MUTED, 13));
         card.addView(line(shortUrl(shareUrl), MUTED, 12));
@@ -411,13 +433,15 @@ public class MainActivity extends Activity {
         if (device == null) {
             content.addView(registerSection());
             content.addView(withTop(ttlCard(), 14));
+            content.addView(withTop(textCard(), 14));      // 没登记也能发文本（只拿分享码）
             content.addView(withTop(codeCard(), 14));      // 「凭分享码下载」统一排在最后
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
             content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(actionsCard(), 14));
-            content.addView(withTop(codeCard(), 14));      // 接收（凭分享码下载）排在「发文件给别的设备」下面
+            content.addView(withTop(textCard(), 14));      // 发文本：跟发文件一个流程
+            content.addView(withTop(codeCard(), 14));      // 接收（凭分享码下载）排到最后
         }
         show(content);
         if (device != null) {
@@ -549,6 +573,9 @@ public class MainActivity extends Activity {
     private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int CODE_LENGTH = 8;
 
+    /** 文本上限，与服务端 SHARELINK_MAX_TEXT_CHARS 一致（超了服务端也会拦，这里先挡一道）。 */
+    private static final int MAX_TEXT_CHARS = 10000;
+
     /** 凭分享码下载：查信息 → 下载 → 交给系统打开。这个流程不需要设备令牌（未登记也能用）。 */
     private View codeCard() {
         LinearLayout card = card();
@@ -622,6 +649,18 @@ public class MainActivity extends Activity {
                 JSONObject info = new JSONObject(Api.get(Api.BASE + "/api/files/" + code, null));
                 if (info.optBoolean("expired")) {
                     codeFail(fetch, "这个分享已经过期了，文件已被删除");
+                    return;
+                }
+                if (info.optBoolean("is_text")) {
+                    // 文本分享：直接取回内容看/复制，不必先下载到「下载」目录再打开
+                    final String text = Api.get(Api.BASE + "/api/download/" + code, null);
+                    final String textName = info.optString("filename", "文本.txt");
+                    ui.post(() -> {
+                        fetch.setEnabled(true);
+                        codeStatus.setTextColor(MUTED);
+                        codeStatus.setText("已读取文本（" + text.length() + " 字符）");
+                        showTextDialog(text, textName);
+                    });
                     return;
                 }
                 final String infoName = info.optString("filename", "");
@@ -757,6 +796,146 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 「发文本」：写一段字，既能只生成分享码，也能挑设备直接投递（跟发文件同一套流程与有效期）。 */
+    private View textCard() {
+        LinearLayout card = card();
+        card.addView(line("发文本", FG, 16));
+        card.addView(withTop(line("最多 " + MAX_TEXT_CHARS + " 字符：贴链接、验证码、代码片段都行。"
+                + "首行会当文件名，到期同样自动删除。", MUTED, 13), 8));
+
+        final EditText input = new EditText(this);
+        input.setHint("粘贴或输入要发送的文字…");
+        input.setTextColor(FG);
+        input.setHintTextColor(MUTED);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setMinLines(3);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(withTop(input, 12));
+
+        final TextView counter = line("0 / " + MAX_TEXT_CHARS + " 字符", MUTED, 12);
+        card.addView(withTop(counter, 6));
+
+        final Button send = button("发送这段文本", true);
+        send.setEnabled(false);
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {
+            }
+
+            @Override public void afterTextChanged(Editable text) {
+                int length = text.length();
+                boolean tooLong = length > MAX_TEXT_CHARS;
+                counter.setText(length + " / " + MAX_TEXT_CHARS + " 字符" + (tooLong ? "（太长了）" : ""));
+                counter.setTextColor(tooLong ? DANGER : MUTED);
+                send.setEnabled(length > 0 && !tooLong);
+            }
+        });
+        send.setOnClickListener(v -> startTextShare(input.getText().toString()));
+        card.addView(withTop(send, 12));
+        return card;
+    }
+
+    /** 点「发送这段文本」：登记过的设备先问发给谁（含「只拿分享码」），没登记就直接拿码。 */
+    private void startTextShare(final String text) {
+        if (text.trim().isEmpty()) {
+            toast("先写点内容");
+            return;
+        }
+        if (text.length() > MAX_TEXT_CHARS) {
+            toast("太长啦：最多 " + MAX_TEXT_CHARS + " 字符");
+            return;
+        }
+        if (device == null) {
+            doTextSend(text, null, null);
+            return;
+        }
+        showFlowBusy("正在读取设备列表…");
+        new Thread(() -> {
+            final List<String[]> others = fetchOtherDevices();
+            ui.post(() -> {
+                if (others.isEmpty()) {
+                    toast("没有别的设备，直接生成分享码");
+                    doTextSend(text, null, null);
+                } else {
+                    chooseDevices(others,
+                            (ids, names) -> doTextSend(text, ids, names),
+                            () -> doTextSend(text, null, null),
+                            () -> showHome());
+                }
+            });
+        }).start();
+    }
+
+    /** 发文本：走 JSON 接口，服务端把它存成小 text/plain —— 分享码、有效期、投递、清理全复用。 */
+    private void doTextSend(final String text, final List<String> targets, final List<String> targetNames) {
+        showFlowBusy(targets == null || targets.isEmpty() ? "正在生成分享码…" : "正在发送文本…");
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("text", text);
+                body.put("ttl_seconds", ttlSeconds);
+                if (targets != null && !targets.isEmpty()) {
+                    JSONArray arr = new JSONArray();
+                    for (String id : targets) {
+                        arr.put(id);
+                    }
+                    body.put("targets", arr);
+                    if (device != null) {
+                        body.put("from_device_id", deviceId());
+                    } else {
+                        body.put("from_name", "安卓手机");
+                    }
+                }
+                final JSONObject json = new JSONObject(Api.postJson(Api.URL_TEXTS, deviceToken(), body.toString()));
+                ui.post(() -> showResult(json, targetNames));
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                ui.post(() -> showFlowMessage("发送失败：" + message));
+            }
+        }).start();
+    }
+
+    /** 文本内容对话框：能选中复制，也能存成 .txt（文本没必要先落盘再让用户去文件管理器找）。 */
+    private void showTextDialog(final String text, final String filename) {
+        final TextView body = new TextView(this);
+        body.setText(text);
+        body.setTextColor(FG);
+        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(16), dp(12), dp(16), dp(12));
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(body);
+        new AlertDialog.Builder(this)
+                .setTitle(filename + "（" + text.length() + " 字符）")
+                .setView(scroller)
+                .setPositiveButton("复制", (d, w) -> {
+                    copyToClipboard("ShareLink 文本", text);
+                    toast("已复制全文");
+                })
+                .setNeutralButton("存成文件", (d, w) -> saveTextAsFile(text, filename))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 把文本写进系统「下载」目录（复用 MediaStore，不需要存储权限）。 */
+    private void saveTextAsFile(final String text, final String filename) {
+        new Thread(() -> {
+            try {
+                saveDownloaded(new java.io.ByteArrayInputStream(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                        filename, "text/plain");
+                ui.post(() -> toast("已存到「下载」目录：" + filename));
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                ui.post(() -> toast("保存失败：" + message));
+            }
+        }).start();
+    }
+
     private View actionsCard() {
         LinearLayout card = card();
         card.addView(line("发文件给别的设备", FG, 16));
@@ -799,6 +978,20 @@ public class MainActivity extends Activity {
                         inboxStatus.setText("收件箱读取失败：" + message);
                     }
                 });
+            }
+        }).start();
+    }
+
+    /** 收件箱里的文本条目：点一下把内容拉下来直接看。 */
+    private void openInboxText(final String downloadUrl, final String filename) {
+        toast("正在读取文本…");
+        new Thread(() -> {
+            try {
+                final String text = Api.get(downloadUrl, null);
+                ui.post(() -> showTextDialog(text, filename));
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                ui.post(() -> showFlowMessage("文本读取失败：" + message));
             }
         }).start();
     }
@@ -850,6 +1043,7 @@ public class MainActivity extends Activity {
             final String filename = item.optString("filename");
             final String mime = item.optString("content_type", "*/*");
             final String downloadUrl = item.optString("download_url", Api.BASE + "/api/download/" + code);
+            final boolean isText = item.optBoolean("is_text");
 
             LinearLayout rowView = new LinearLayout(this);
             rowView.setOrientation(LinearLayout.VERTICAL);
@@ -862,9 +1056,16 @@ public class MainActivity extends Activity {
             String from = item.optString("from_name", "匿名设备");
             rowView.addView(line(Api.humanSize(item.optLong("size")) + " · 来自 " + from + " · "
                     + Api.humanLeft(item.optLong("seconds_left")), MUTED, 12));
-            rowView.addView(line("点一下下载并打开 · 长按可移出收件箱", MUTED, 11));
+            rowView.addView(line(isText ? "点一下看文本内容 · 长按可移出收件箱"
+                    : "点一下下载并打开 · 长按可移出收件箱", MUTED, 11));
 
-            rowView.setOnClickListener(v -> downloadItem(downloadUrl, filename, mime));
+            rowView.setOnClickListener(v -> {
+                if (isText) {
+                    openInboxText(downloadUrl, filename);
+                } else {
+                    downloadItem(downloadUrl, filename, mime);
+                }
+            });
             rowView.setOnLongClickListener(v -> {
                 new AlertDialog.Builder(this)
                         .setTitle("移出收件箱？")
