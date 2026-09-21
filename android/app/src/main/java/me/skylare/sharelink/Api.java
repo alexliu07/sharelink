@@ -32,7 +32,7 @@ final class Api {
     static final String URL_TEXTS = BASE + "/api/texts";
     /** 设备组：建组 / 列表 / 详情 / 加入 / 退出 / 移除成员 / 改名 / 解散。 */
     static final String URL_GROUPS = BASE + "/api/groups";        // 发文本（JSON）
-    static final String UA = "ShareLink-Android/1.14";
+    static final String UA = "ShareLink-Android/1.15";
 
     private Api() {
     }
@@ -40,10 +40,17 @@ final class Api {
     /** 服务端返回 4xx/5xx 时抛这个，message 已经是给人看的中文原因。 */
     static class HttpException extends Exception {
         final int status;
+        final String code;                                  // 服务端的错误码（detail.error）
 
-        HttpException(int status, String message) {
+        HttpException(int status, String message, String code) {
             super(message);
             this.status = status;
+            this.code = code == null ? "" : code;
+        }
+
+        /** 服务端已经不认这台设备：设备被清掉了，或本机令牌对不上（换浏览器 / 重装）。 */
+        boolean isDeviceGone() {
+            return "device_not_found".equals(code) || "bad_device_token".equals(code);
         }
     }
 
@@ -96,12 +103,22 @@ final class Api {
         String body = in == null ? "" : readText(in);
         conn.disconnect();
         if (status >= 400) {
-            throw new HttpException(status, describe(status, body));
+            throw new HttpException(status, describe(status, body), errorCode(body));
         }
         return body;
     }
 
     /** 把服务端的错误 JSON 变成一句人话。 */
+    /** 服务端错误体里的 detail.error（客户端据此判断「本机这台设备已不存在」）。 */
+    static String errorCode(String body) {
+        try {
+            JSONObject detail = new JSONObject(body == null ? "" : body).optJSONObject("detail");
+            return detail == null ? "" : detail.optString("error", "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     static String describe(int status, String body) {
         try {
             JSONObject json = new JSONObject(body == null ? "" : body);
@@ -272,7 +289,7 @@ final class Api {
             InputStream in = conn.getErrorStream();
             String body = in == null ? "" : readText(in);
             conn.disconnect();
-            throw new HttpException(status, describe(status, body));
+            throw new HttpException(status, describe(status, body), errorCode(body));
         }
         String disposition = conn.getHeaderField("Content-Disposition");
         String contentType = conn.getHeaderField("Content-Type");

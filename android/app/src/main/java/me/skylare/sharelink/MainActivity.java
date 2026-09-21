@@ -167,6 +167,23 @@ public class MainActivity extends Activity {
         prefs.edit().remove(KEY_DEVICE).apply();
     }
 
+    /**
+     * 服务端已经不认这台设备（管理员清理过 / 换了浏览器 / 重装）→ 清掉本机缓存的那台：
+     * 否则设备页一直显示一台服务端没有的设备，注销也注销不掉、设备组也建不了。
+     * 返回 true 表示这种情况已处理，调用方不要再弹原来的报错。
+     */
+    private boolean handleDeviceGone(Exception e) {
+        if (!(e instanceof Api.HttpException) || !((Api.HttpException) e).isDeviceGone()) {
+            return false;
+        }
+        clearDevice();
+        ui.post(() -> {
+            toast("服务端已经没有这台设备了，已清除本机登记：重新「创建设备组」或「加入设备组」即可");
+            showHome();
+        });
+        return true;
+    }
+
     private String deviceId() {
         return device == null ? "" : device.optString("id");
     }
@@ -345,6 +362,9 @@ public class MainActivity extends Activity {
                 final JSONObject json = new JSONObject(body);
                 ui.post(() -> showResult(json, targetNames));
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> showFlowMessage("上传失败：" + message));
             }
@@ -879,6 +899,9 @@ public class MainActivity extends Activity {
                 final JSONObject json = new JSONObject(Api.postJson(Api.URL_TEXTS, deviceToken(), body.toString()));
                 ui.post(() -> showResult(json, targetNames));
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> showFlowMessage("发送失败：" + message));
             }
@@ -916,6 +939,9 @@ public class MainActivity extends Activity {
                         filename, "text/plain");
                 ui.post(() -> toast("已存到「下载」目录：" + filename));
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> toast("保存失败：" + message));
             }
@@ -957,6 +983,9 @@ public class MainActivity extends Activity {
                     renderInbox(json);
                 });
             } catch (final Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> {
                     inboxRefreshDone();
@@ -976,6 +1005,9 @@ public class MainActivity extends Activity {
                 final String text = Api.get(downloadUrl, null);
                 ui.post(() -> showTextDialog(text, filename));
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> showFlowMessage("文本读取失败：" + message));
             }
@@ -1106,6 +1138,9 @@ public class MainActivity extends Activity {
                 final Saved saved = saveDownloaded(download.stream, name, download.mime);
                 ui.post(() -> openSaved(saved, name, download.mime));
             } catch (final Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> toast("下载失败：" + message));
             }
@@ -1256,6 +1291,9 @@ public class MainActivity extends Activity {
                     showHome();
                 });
             } catch (final Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> showFlowMessage("导入失败：" + message));
             }
@@ -1301,6 +1339,9 @@ public class MainActivity extends Activity {
                     showHome();
                 });
             } catch (final Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> toast("改名失败：" + message));
             }
@@ -1320,8 +1361,20 @@ public class MainActivity extends Activity {
                             showHome();
                         });
                     } catch (final Exception e) {
-                        final String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                        ui.post(() -> toast("注销失败：" + message));
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
+                final String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                        ui.post(() -> new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("注销失败")
+                                .setMessage(message + "\n\n要只清除本机登记吗？清除后可以重新「创建设备组」或「加入设备组」。")
+                                .setPositiveButton("清除本机登记", (dialog, which) -> {
+                                    clearDevice();
+                                    toast("已清除本机登记");
+                                    showHome();
+                                })
+                                .setNegativeButton("取消", null)
+                                .show());
                     }
                 }).start())
                 .setNegativeButton("取消", null)
@@ -1444,6 +1497,9 @@ public class MainActivity extends Activity {
                     renderGroups(box, status, groups);
                 });
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> {
                     if (groupStatus == status) {
@@ -1609,6 +1665,9 @@ public class MainActivity extends Activity {
                     showHome();                                 // 整页重画：登记后设备卡/收件箱立刻出现
                 });
             } catch (Exception e) {
+                if (handleDeviceGone(e)) {          // 服务端已经不认这台设备：清本机登记，回到建组/加入
+                    return;
+                }
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 final String label = doing.replace("正在", "").replace("…", "");
                 ui.post(() -> showFlowMessage(label + "失败：" + message));
