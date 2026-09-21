@@ -53,7 +53,7 @@ if order and order.index("codeCard") < order.index("actionsCard"):
 # 未登记设备分支：接收卡片也应当在最后
 null_branch = re.search(r"if \(device == null\) \{(.*?)\n        \} else", section, re.S)
 if null_branch:
-    names = re.findall(r"addView\(withTop\((\w+)\(\)", null_branch.group(1))
+    names = re.findall(r"addView\((?:withTop\()?(\w+)\(\)", null_branch.group(1))
     print(f"\nshowHome()（未登记设备）顺序：{names}")
     if names and names[-1] != "codeCard":
         errors.append(f"未登记分支里「凭分享码下载」应为最后一个，实际 {names[-1]}")

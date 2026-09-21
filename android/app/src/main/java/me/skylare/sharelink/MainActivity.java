@@ -82,7 +82,8 @@ public class MainActivity extends Activity {
     private TextView inboxStatus;
     private Button inboxRefresh;
     private LinearLayout groupBox;            // 设备组列表（每次刷新重建里面的行）
-    private TextView groupStatus;             // 设备组状态行      // 收件箱「刷新」按钮（手动重拉，过程中禁用）
+    private TextView groupStatus;             // 设备组状态行
+    private AlertDialog activeDialog;         // 当前打开的组详情框（组变更后自动关掉）
     private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
     private TextView codeStatus;      // 「凭分享码下载」卡上的进度 / 报错说明
 
@@ -452,7 +453,7 @@ public class MainActivity extends Activity {
         LinearLayout content = column();
         content.addView(title("ShareLink"));
         if (device == null) {
-            content.addView(registerSection());
+            content.addView(groupCard());                   // 建组/加入会自动登记本机，不再有单独的登记步骤
             content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(textCard(), 14));      // 没登记也能发文本（只拿分享码）
             content.addView(withTop(codeCard(), 14));      // 「凭分享码下载」统一排在最后
@@ -471,63 +472,26 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View registerSection() {
-        LinearLayout wrapper = column();
-        wrapper.setPadding(0, 0, 0, 0);
-        LinearLayout card = card();
-        card.addView(line("把这台手机登记成一台设备", FG, 16));
-        card.addView(withTop(line("登记后：别的设备（iPad、电脑）可以直接把文件发到这台手机的收件箱；"
-                + "你分享文件时也能直接投递给它们，而不只是生成分享码。", MUTED, 13), 8));
-
-        final EditText name = new EditText(this);
-        name.setHint("设备名，例如：我的手机");
-        name.setInputType(InputType.TYPE_CLASS_TEXT);
-        name.setTextColor(FG);
-        name.setHintTextColor(MUTED);
-        card.addView(withTop(name, 14));
-
-        Button register = button("登记这台设备", true);
-        register.setOnClickListener(v -> {
-            String wanted = name.getText().toString().trim();
-            if (wanted.isEmpty()) {
-                wanted = "安卓手机";
-            }
-            final String finalName = wanted;
-            register.setEnabled(false);
-            showFlowBusy("正在登记 " + finalName + "…");
-            new Thread(() -> {
-                try {
-                    JSONObject payload = new JSONObject();
-                    payload.put("name", finalName);
-                    JSONObject res = new JSONObject(Api.postJson(Api.URL_DEVICES, null, payload.toString()));
-                    saveDevice(res.optString("id"), res.optString("token"), res.optString("name"));
-                    ui.post(() -> {
-                        toast("已登记为「" + deviceName() + "」");
-                        showHome();
-                    });
-                } catch (Exception e) {
-                    final String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                    ui.post(() -> {
-                        register.setEnabled(true);
-                        showFlowMessage("登记失败：" + message);
-                    });
-                }
-            }).start();
-        });
-        card.addView(withTop(register, 12));
-
-        Button importBtn = button("从剪贴板导入令牌", false);
+    /** 已有令牌的老设备（换手机 / 重装后恢复）：从剪贴板认领原来的设备与收件箱。 */
+    private void addTokenImportRows(LinearLayout card) {
+        Button importBtn = button("已有令牌？从剪贴板导入", false);
         importBtn.setOnClickListener(v -> importTokenFromClipboard());
-        card.addView(withTop(importBtn, 8));
-        card.addView(withTop(line("例如先在电脑网页版导出令牌，把那段 JSON 复制到剪贴板再点这里，"
-                + "这台手机就会认领同一台设备（连收件箱一起）。", MUTED, 12), 6));
-        wrapper.addView(card);
+        card.addView(withTop(importBtn, 10));
+        card.addView(withTop(line("例如先在电脑网页版把令牌复制到剪贴板，再点这里，"
+                + "这台手机就会认领同一台设备（连设备组和收件箱一起）。", MUTED, 12), 6));
+    }
 
-        LinearLayout tip = card();
-        tip.addView(line("在相册 / 文件管理里点「分享」→ 选 ShareLink，文件就会上传并给出分享码，"
-                + "也可以顺手发给别的设备。", MUTED, 12));
-        wrapper.addView(withTop(tip, 14));
-        return wrapper;
+    /** 没登记就顺手登记一台（名字默认用手机型号），返回 true 表示本次是新建的。 */
+    private boolean ensureRegistered() throws Exception {
+        if (device != null) {
+            return false;
+        }
+        String model = Build.MODEL == null ? "" : Build.MODEL.trim();
+        JSONObject payload = new JSONObject();
+        payload.put("name", model.isEmpty() ? "安卓手机" : model);
+        JSONObject res = new JSONObject(Api.postJson(Api.URL_DEVICES, null, payload.toString()));
+        saveDevice(res.optString("id"), res.optString("token"), res.optString("name"));
+        return true;
     }
 
     private View deviceCard() {
@@ -1386,10 +1350,13 @@ public class MainActivity extends Activity {
     // ============================================================ 设备组
     /** 设备组卡片：建组 / 凭组 id 加入 / 我的组（点「管理」看成员与操作）。 */
     private View groupCard() {
+        final boolean registered = device != null;
         LinearLayout card = card();
         card.addView(line("设备组", FG, 16));
-        card.addView(withTop(line("只有同一个组里的设备之间才能互传。组 id 就是邀请凭证：复制下来发给别的设备，"
-                + "对方粘贴加入就和你同组了。", MUTED, 13), 8));
+        card.addView(withTop(line(registered
+                ? "只有同一个组里的设备之间才能互传。组 id 就是邀请凭证：复制下来发给别的设备，对方粘贴加入就和你同组了。"
+                : "点下面的按钮就会自动把这台手机加进设备列表：创建时你直接进组并成为管理员，"
+                  + "加入时用对方给的组 id。名字默认用手机型号，之后在设备页可改。", MUTED, 13), 8));
 
         LinearLayout buttons = row();
         Button create = button("创建设备组", true);
@@ -1399,9 +1366,11 @@ public class MainActivity extends Activity {
                 return;
             }
             groupAction("正在创建设备组…", () -> {
+                ensureRegistered();                             // 没登记就顺手登记：创建设备组的设备自动进组
                 JSONObject res = groupCall("POST", "", new JSONObject().put("name", name));
                 JSONObject group = res.optJSONObject("group");
-                return "已建「" + group.optString("name") + "」：" + group.optString("id") + "（复制发给别的设备即可加入）";
+                return "已建「" + group.optString("name") + "」，本机已在组里（你是管理员）：组 id "
+                        + group.optString("id") + "，复制发给别的设备即可加入";
             });
         }));
         LinearLayout.LayoutParams createParams =
@@ -1416,6 +1385,7 @@ public class MainActivity extends Activity {
                 return;
             }
             groupAction("正在加入设备组…", () -> {
+                ensureRegistered();                             // 没登记就顺手登记，加入后本机就是成员
                 JSONObject res = groupCall("POST", "/" + raw + "/join", null);
                 JSONObject group = res.optJSONObject("group");
                 return res.optBoolean("already_member")
@@ -1426,12 +1396,18 @@ public class MainActivity extends Activity {
         buttons.addView(join, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         card.addView(withTop(buttons, 10));
 
-        groupStatus = line("正在读取设备组…", MUTED, 12);
+        groupStatus = line(registered ? "正在读取设备组…" : "还没有加入任何设备组", MUTED, 12);
         card.addView(withTop(groupStatus, 10));
         groupBox = column();
         groupBox.setPadding(0, 0, 0, 0);
         card.addView(groupBox);
-        loadGroups();
+        if (registered) {
+            loadGroups();
+        } else {
+            addTokenImportRows(card);                       // 未登记时给老设备留一条「认领原设备」的路
+            card.addView(withTop(line("在相册 / 文件管理里点「分享」→ 选 ShareLink，文件会先上传并给出分享码，"
+                    + "也可以顺手发给同组设备。", MUTED, 12), 12));
+        }
         return card;
     }
 
@@ -1577,7 +1553,7 @@ public class MainActivity extends Activity {
 
         ScrollView scroller = new ScrollView(this);
         scroller.addView(body);
-        new AlertDialog.Builder(this)
+        activeDialog = new AlertDialog.Builder(this)
                 .setTitle(groupName)
                 .setView(scroller)
                 .setNegativeButton("关闭", null)
@@ -1627,7 +1603,10 @@ public class MainActivity extends Activity {
                 final String message = task.run();
                 ui.post(() -> {
                     toast(message);
-                    loadGroups();
+                    if (activeDialog != null && activeDialog.isShowing()) {
+                        activeDialog.dismiss();                 // 组详情已过期，关掉让用户看新的
+                    }
+                    showHome();                                 // 整页重画：登记后设备卡/收件箱立刻出现
                 });
             } catch (Exception e) {
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
