@@ -496,6 +496,8 @@ public class MainActivity extends Activity {
         card.addView(header);
         inboxList = new LinearLayout(this);
         inboxList.setOrientation(LinearLayout.VERTICAL);
+        inboxList.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(withTop(inboxList, 10));
         return card;
     }
@@ -636,6 +638,8 @@ public class MainActivity extends Activity {
             rowView.setBackground(rounded(CARD_SOFT, 12));
             int pad = dp(12);
             rowView.setPadding(pad, pad, pad, pad);
+            rowView.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             rowView.addView(line((item.optBoolean("seen") ? "" : "● ") + filename, FG, 15));
             String from = item.optString("from_name", "匿名设备");
             rowView.addView(line(Api.humanSize(item.optLong("size")) + " · 来自 " + from + " · "
@@ -931,7 +935,10 @@ public class MainActivity extends Activity {
 
     private void show(View content) {
         box.removeAllViews();
-        box.addView(content);
+        // 整屏内容必须撑满宽度：默认 wrap_content 会让"内容窄"的卡片跟着缩，
+        // 里面的标题/选项条就被挤成两行或被裁掉
+        box.addView(content, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private LinearLayout column() {
@@ -939,6 +946,8 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(18);
         layout.setPadding(pad, dp(26), pad, dp(32));
+        layout.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return layout;
     }
 
@@ -948,6 +957,9 @@ public class MainActivity extends Activity {
         int pad = dp(14);
         layout.setPadding(pad, pad, pad, pad);
         layout.setBackground(rounded(CARD, 14));
+        // 每张卡都撑满整行，宽度不随内容多少变（否则窄内容的卡片会缩成一小块）
+        layout.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return layout;
     }
 
