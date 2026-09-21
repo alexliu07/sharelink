@@ -134,7 +134,7 @@ def _device_or_403(device_id: str, token: Optional[str]) -> db.DeviceRecord:
     """取设备并校验令牌：设备 id 是公开的，令牌才是"我是这台设备"的凭证。"""
     device = db.get_device(device_id)
     if device is None:
-        raise _error(404, "device_not_found", "设备不存在或已注销，请在设备标签页重新添加本设备")
+        raise _error(404, "device_not_found", "设备不存在或已注销（可能被管理员清理或换过浏览器）：点「创建设备组」或「加入设备组」重新开始，会自动登记本设备")
     if not devices.verify_token(device, token):
         raise _error(403, "bad_device_token", "设备令牌无效：这个浏览器不是该设备，或令牌已丢失")
     return device
