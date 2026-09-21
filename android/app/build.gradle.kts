@@ -16,12 +16,23 @@ android {
         versionName = "1.1"
     }
 
+    // 显式指向仓库里的 keystore。不要用 signingConfigs.getByName("debug")：
+    // 那个配置的实际用法是「没有就自己生成一张」，于是每次 CI 都会换一把密钥，
+    // 装新版本就会因为签名不一致而必须先卸载（踩过这个坑）。
+    signingConfigs {
+        create("release-key") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storeType = "PKCS12"
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // 用固定的调试签名（仓库里带了 keystore，CI 会拷到 ~/.android/debug.keystore），
-            // 这样每次装新版本都是"升级"，不会因为签名变了而要求先卸载。
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release-key")
         }
     }
 

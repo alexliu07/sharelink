@@ -35,7 +35,7 @@ jobs:
           if [ ! -f android/keystore/debug.keystore ]; then
             mkdir -p android/keystore
             keytool -genkeypair -keystore android/keystore/debug.keystore \
-              -storepass android -keypass android -alias androiddebugkey \
+              -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
             git config user.name "github-actions[bot]"
@@ -75,6 +75,22 @@ jobs:
           cd dist
           sha256sum ShareLink.apk | tee ShareLink.apk.sha256
           ls -l
+
+      - name: 自检：APK 的签名必须就是仓库里那张 keystore
+        run: |
+          BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/*/ | sort -V | tail -1)
+          APK_FP=$("${BT}apksigner" verify --print-certs dist/ShareLink.apk \
+                   | awk '/certificate SHA-256 digest/{print $NF; exit}' | tr 'A-F' 'a-f' | tr -d ':')
+          KS_FP=$(keytool -list -v -keystore android/keystore/debug.keystore -storepass android \
+                   | awk '/SHA256:/{print $2; exit}' | tr 'A-F' 'a-f' | tr -d ':')
+          echo "APK 签名指纹  : $APK_FP"
+          echo "仓库 keystore : $KS_FP"
+          if [ -n "$APK_FP" ] && [ "$APK_FP" = "$KS_FP" ]; then
+            echo "✅ 一致：以后装新版本可以直接覆盖安装"
+          else
+            echo "::error::签名与仓库里的 keystore 不一致，装新版本会被要求先卸载"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
