@@ -168,6 +168,8 @@ https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLin
 
 允许「未知来源」安装即可；细节和构建方式见 `android/README.md`。
 服务端不需要为它做任何特殊配置——它用的就是同一个 `/api/share-target`。
+App 里登记一下设备（或从剪贴板导入网页版的令牌），它还能当**收件箱**用：别的设备（iPad、电脑网页版）
+可以直接把文件投递到这台手机，App 打开就能看、下载、标记已读；反过来分享文件时也能直接勾选目标设备投递。
 
 **2. 第三方分享 App**：服务端也按它们的用法做了兼容——
 `/api/share-target` 收 **任意字段名** 的文件部分（各家 multipart 的 part 名不一样：`file`/`myfile`/`files[]`…），

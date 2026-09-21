@@ -32,6 +32,9 @@ MANIFEST_NEEDLES = [
 DEX_NEEDLES = [
     "https://skylare.me/share/api/share-target?response=json",
     "multipart/form-data; boundary=",
+    "/api/transfers",          # 设备互传：定向投递
+    "X-Device-Token",          # 设备鉴权头
+    "/inbox",                  # 收件箱
 ]
 
 

@@ -64,7 +64,33 @@ CI 自己也会自检（`apksigner verify --print-certs` 的结果必须等于 `
 cd android && gradle assembleRelease     # 产物在 app/build/outputs/apk/release/
 ```
 
-## 已验证 / 未验证
+## 设备互传（App 就是一台设备）
+
+装完 App 在主页可以「登记这台设备」（`POST /api/devices`，拿到 `id` + `token` 存在本机），之后：
+
+- **收**：主页收件箱列出别的设备发来的文件（`GET /api/devices/{id}/inbox` + `X-Device-Token`），
+  显示文件名 / 大小 / 谁发的 / 剩余有效期；点一下下载并交给系统打开（安卓 10+ 存进系统「下载」目录，
+  不需要任何存储权限，用 MediaStore 的 `content://` URI 打开）；长按可移出收件箱（只删投递记录，文件还在）
+- **发**：分享文件时先问"要发给哪台设备吗"（多选，不选＝只生成分享码），
+  选中就走 `POST /api/transfers`（`file` + `targets` + `from_device_id` + `note`，带自己的令牌）——
+  **一次上传同时拿到分享码和投递**，不会为了投递再传一遍大文件
+- 主页「选择文件发给设备」：不用分享面板也能发（`ACTION_GET_CONTENT` 选文件 → 勾设备 → 投递）
+- 还有：改名字（`PATCH /api/devices/{id}`，`HttpURLConnection` 不认 PATCH，靠反射塞方法名）、
+  注销设备、导出令牌到剪贴板、从剪贴板导入令牌（导入时先读一次收件箱验证令牌有效才保存，
+  和网页端的做法一致；两边格式互通：`{sharelink_device:1, id, name, token}`）
+
+新文件提醒只做「打开 App 时拉一次」，没做后台轮询/通知（省电、不用通知权限）。
+
+### 设备互传这一段怎么验证的
+
+`scripts/live_device_transfer_check.py` 把 App 会发的请求（含 multipart 字节布局、`X-Device-Token` 头）
+逐字节复刻后打真实服务端，跑完整链路：登记两台设备 → 投递（校验实名发送者、附言、中文文件名）→
+读收件箱（校验 `from_name`/`sent_at`/`seen`/`download_url`/`seconds_left`）→ 下载并比对字节 →
+标记已读 → 移出 → 改名 → 注销 → 校验设备数回到跑之前。当前 **29 项全过**。
+
+**仍未验证**：真机上的实际交互（收件箱列表渲染、下载后用系统应用打开、MediaStore 写入在国行 ROM 上的行为）。
+
+## 已验证 / 未验证（构建与上传部分）
 
 - 已验证：Java 编译通过、APK 由 CI 构建并发布；App 会发出的 multipart 字节（含中文文件名、title/text 字段、
   固定 Content-Length）被逐字节复刻后打到线上接口，返回 200 与正确的分享码
