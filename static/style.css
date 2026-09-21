@@ -280,6 +280,47 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   font-size: 12px;
 }
 
+/* --------- 设备组（建组 / 凭组 id 加入 / 成员管理） --------- */
+.group-block { margin-top: 24px; }
+.group-form { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.group-form .input { flex: 1 1 200px; min-width: 0; }
+.group-form .primary { flex: 0 0 auto; }
+
+.group-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.group-card {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(12, 18, 38, .45);
+}
+.group-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.group-card-head strong { font-size: 15px; }
+.group-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: rgba(120, 140, 255, .12);
+  border-radius: 6px;
+  padding: 2px 7px;
+  word-break: break-all;
+}
+.group-members { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-members li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.group-members .grow { flex: 1 1 auto; min-width: 0; }
+.group-members .icon-btn { flex: 0 0 auto; }
+.group-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.group-actions .ghost, .group-actions .danger { margin-top: 0; }
+
+/* 发送面板：按「共同设备组」分区 */
+.pick-group-title {
+  display: block;
+  margin: 12px 0 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+  letter-spacing: .02em;
+}
+#send-targets .pick-group-title:first-child { margin-top: 0; }
+
 /* ============================ 设备互传 ============================ */
 .tabs { flex-wrap: wrap; }
 .tab { min-width: 120px; }

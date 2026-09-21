@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 6;
+  const ASSET_VERSION = 7;
 
   const $ = (id) => document.getElementById(id);
 
@@ -92,6 +92,20 @@
     deviceList: $("device-list"),
     deviceCount: $("device-count"),
     deviceEmpty: $("device-empty"),
+    deviceNoGroup: $("device-no-group"),
+    groupCount: $("group-count"),
+    groupList: $("group-list"),
+    groupEmpty: $("group-empty"),
+    groupNeedDevice: $("group-need-device"),
+    groupCreateRow: $("group-create-row"),
+    groupNameInput: $("group-name-input"),
+    groupCreateBtn: $("group-create-btn"),
+    groupJoinRow: $("group-join-row"),
+    groupJoinInput: $("group-join-input"),
+    groupJoinBtn: $("group-join-btn"),
+    groupRefresh: $("group-refresh"),
+    sendNeedDevice: $("send-need-device"),
+    sendFromRow: $("send-from-row"),
     sendBtn: $("send-btn"),
     sendModal: $("send-modal"),
     sendClose: $("send-close"),
@@ -533,6 +547,8 @@
   const DEVICE_KEY = "sharelink.device";   // localStorage：{id, token, name}
   let myDevice = null;                     // 本浏览器登记的设备
   let deviceCache = [];                    // 设备列表缓存（发送面板与设备页共用）
+  let deviceScope = "";                    // "groups" = 只列同组设备；"unregistered" = 未登记
+  let groupCache = [];                     // 我加入的设备组（含成员名单）
   let inboxTicker = null;
 
   const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#${name}"></use></svg>`;
@@ -578,10 +594,13 @@
       els.selfName.textContent = myDevice.name;
       els.selfMeta.textContent = `设备 id ${myDevice.id} · 令牌只存在本浏览器`;
       els.deviceTokenText.value = deviceTokenJson();       // 直接把令牌摆出来，不用先"导出"再找文件
+      loadGroups();                                        // 登记/恢复后立刻显示设备组（含成员）
     } else {
       els.inboxList.innerHTML = "";
       els.inboxCount.textContent = "";
       if (els.deviceTokenText) els.deviceTokenText.value = "";
+      groupCache = [];
+      renderGroups();
       setBadge(0);
     }
   }
@@ -595,11 +614,16 @@
     );
   }
 
-  /* ---------- 设备列表 ---------- */
+  /* ---------- 设备列表（只显示"自己 + 同组设备"） ---------- */
   async function loadDevices() {
     try {
-      const data = await apiJson("/api/devices");
+      // 服务端按令牌判断"我和谁同组"：不带令牌只会得到空列表（不再对外列出设备名单）
+      const url = myDevice
+        ? `/api/devices?device_id=${encodeURIComponent(myDevice.id)}`
+        : "/api/devices";
+      const data = await apiJson(url, myDevice ? { headers: deviceHeaders() } : {});
       deviceCache = data.devices || [];
+      deviceScope = data.scope || "";
       renderDeviceList();
       return deviceCache;
     } catch (err) {
@@ -609,20 +633,211 @@
   }
 
   function renderDeviceList() {
+    const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
     els.deviceCount.textContent = deviceCache.length ? `共 ${deviceCache.length} 台` : "";
-    els.deviceEmpty.classList.toggle("hidden", deviceCache.length > 0);
+    els.deviceEmpty.classList.toggle("hidden", deviceCache.length > 0 || !!myDevice);
+    // 已登记但一个组都没有：说明清楚为什么列表里只有自己
+    els.deviceNoGroup.classList.toggle("hidden", !myDevice || others.length > 0);
     els.deviceList.innerHTML = deviceCache.map((device) => {
       const mine = myDevice && device.id === myDevice.id;
+      const groups = device.shared_groups || [];
+      const tags = groups.map((group) => `<span class="tag">${escapeHtml(group.name)}</span>`).join("");
       return `<li>
         <span class="picked-icon">${icon("icon-devices")}</span>
         <span class="meta">
           <strong>${escapeHtml(device.name)}</strong>
           <span class="muted">${lastSeenText(device.idle_seconds)} · 收件箱 ${device.inbox_count} 个文件</span>
         </span>
-        ${mine ? '<span class="tag self">本设备</span>' : `<span class="tag">${escapeHtml(device.id)}</span>`}
+        ${mine ? '<span class="tag self">本设备</span>' : `${tags}<span class="tag">${escapeHtml(device.id)}</span>`}
       </li>`;
     }).join("");
   }
+
+  /* ---------- 设备组 ---------- */
+  function deviceUrl(path) {
+    const joiner = path.includes("?") ? "&" : "?";
+    return `${path}${joiner}device_id=${encodeURIComponent(myDevice.id)}`;
+  }
+
+  async function loadGroups() {
+    if (!myDevice) {
+      groupCache = [];
+      renderGroups();
+      return [];
+    }
+    try {
+      const data = await apiJson(deviceUrl("/api/groups"), { headers: deviceHeaders() });
+      groupCache = data.groups || [];
+      // 成员名单只有组内可见：逐组拉一次（组数量级很小）
+      await Promise.all(groupCache.map(async (group) => {
+        try {
+          const detail = await apiJson(deviceUrl(`/api/groups/${encodeURIComponent(group.id)}`), { headers: deviceHeaders() });
+          group.members = detail.members || [];
+        } catch (err) {
+          group.members = null;                       // 拉不到就只显示成员数
+        }
+      }));
+      renderGroups();
+      return groupCache;
+    } catch (err) {
+      els.groupList.innerHTML = `<li class="muted">设备组读取失败：${escapeHtml(err.message)}</li>`;
+      return [];
+    }
+  }
+
+  function renderGroups() {
+    els.groupCount.textContent = groupCache.length ? `共 ${groupCache.length} 个` : "";
+    els.groupEmpty.classList.toggle("hidden", groupCache.length > 0 || !myDevice);
+    els.groupNeedDevice.classList.toggle("hidden", !!myDevice);
+    els.groupCreateRow.classList.toggle("hidden", !myDevice);
+    els.groupJoinRow.classList.toggle("hidden", !myDevice);
+
+    els.groupList.innerHTML = groupCache.map((group) => {
+      const owner = group.is_owner;
+      const members = Array.isArray(group.members) ? group.members : [];
+      const memberRows = members.length
+        ? members.map((member) => `
+            <li>
+              <span class="grow">${escapeHtml(member.name)}${member.is_self ? "（本设备）" : ""}
+                <span class="muted">${member.role === "owner" ? "管理员" : "成员"} · ${lastSeenText(member.idle_seconds)}</span></span>
+              ${owner && !member.is_self
+                ? `<button class="icon-btn" data-act="remove-member" data-group="${escapeHtml(group.id)}"
+                           data-member="${escapeHtml(member.id)}" title="移出设备组"
+                           aria-label="把 ${escapeHtml(member.name)} 移出设备组">${icon("icon-close")}</button>`
+                : ""}
+            </li>`).join("")
+        : `<li class="group-empty-members">成员 ${group.member_count} 台${group.members === null ? "（名单读取失败，点右上角刷新重试）" : ""}</li>`;
+      return `<li class="group-card">
+        <div class="group-card-head">
+          <strong>${escapeHtml(group.name)}</strong>
+          <span class="tag ${owner ? "self" : ""}">${owner ? "我是管理员" : "成员"}</span>
+          <span class="muted">${group.member_count} 台设备</span>
+        </div>
+        <div class="group-card-head">
+          <span class="group-id">${escapeHtml(group.id)}</span>
+          <button class="ghost" data-act="copy-group" data-group="${escapeHtml(group.id)}"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>复制组 id</button>
+        </div>
+        <ul class="group-members">${memberRows}</ul>
+        <div class="group-actions">
+          ${owner
+            ? `<button class="ghost" data-act="rename-group" data-group="${escapeHtml(group.id)}" data-name="${escapeHtml(group.name)}">改组名</button>
+               <button class="danger" data-act="dissolve-group" data-group="${escapeHtml(group.id)}" data-name="${escapeHtml(group.name)}">解散设备组</button>`
+            : `<button class="ghost" data-act="leave-group" data-group="${escapeHtml(group.id)}" data-name="${escapeHtml(group.name)}">退出设备组</button>`}
+        </div>
+      </li>`;
+    }).join("");
+  }
+
+  els.groupList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-act]");
+    if (!button || !myDevice) return;
+    const groupId = button.dataset.group;
+    const label = button.dataset.name || groupId;
+    const act = button.dataset.act;
+    hideNotice();
+    try {
+      if (act === "copy-group") {
+        showNotice((await copyText(groupId)) ? `已复制组 id：${groupId}` : `组 id：${groupId}（长按复制）`, "ok");
+        return;
+      }
+      if (act === "rename-group") {
+        const name = window.prompt("新的设备组名字：", label);
+        if (name === null) return;
+        await apiJson(`/api/groups/${encodeURIComponent(groupId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...deviceHeaders() },
+          body: JSON.stringify({ device_id: myDevice.id, name }),
+        });
+        showNotice("组名已更新。", "ok");
+      } else if (act === "leave-group") {
+        if (!window.confirm(`退出「${label}」？退出后就不能和组里其他设备互传了。`)) return;
+        await apiJson(`/api/groups/${encodeURIComponent(groupId)}/leave`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...deviceHeaders() },
+          body: JSON.stringify({ device_id: myDevice.id }),
+        });
+        showNotice(`已退出「${label}」。`, "ok");
+      } else if (act === "dissolve-group") {
+        if (!window.confirm(`解散「${label}」？组内成员关系会清空（已经收到的文件不受影响）。`)) return;
+        await apiJson(deviceUrl(`/api/groups/${encodeURIComponent(groupId)}`), {
+          method: "DELETE",
+          headers: deviceHeaders(),
+        });
+        showNotice(`已解散「${label}」。`, "ok");
+      } else if (act === "remove-member") {
+        const memberId = button.dataset.member;
+        if (!window.confirm("把这台设备移出设备组？移出后就不能互传了。")) return;
+        await apiJson(deviceUrl(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}`), {
+          method: "DELETE",
+          headers: deviceHeaders(),
+        });
+        showNotice("已移出该设备。", "ok");
+      }
+      await loadGroups();
+      await loadDevices();
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+
+  els.groupRefresh.addEventListener("click", async () => {
+    els.groupRefresh.disabled = true;
+    try {
+      await loadGroups();
+      await loadDevices();
+    } finally {
+      els.groupRefresh.disabled = false;
+    }
+  });
+
+  els.groupCreateBtn.addEventListener("click", async () => {
+    if (!myDevice) return;
+    els.groupCreateBtn.disabled = true;
+    hideNotice();
+    try {
+      const name = els.groupNameInput.value.trim();
+      const data = await apiJson("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...deviceHeaders() },
+        body: JSON.stringify({ device_id: myDevice.id, name }),
+      });
+      els.groupNameInput.value = "";
+      showNotice(`已创建设备组「${data.group.name}」：把组 id ${data.group.id} 发给别的设备，对方粘贴就能加入。`, "ok");
+      await loadGroups();
+    } catch (err) {
+      showNotice(err.message);
+    } finally {
+      els.groupCreateBtn.disabled = false;
+    }
+  });
+
+  els.groupJoinBtn.addEventListener("click", async () => {
+    if (!myDevice) return;
+    const raw = els.groupJoinInput.value.trim();
+    if (!raw) {
+      showNotice("先粘贴对方给的组 id（形如 grp_7KQ2M4XZ9B3D）。");
+      return;
+    }
+    els.groupJoinBtn.disabled = true;
+    hideNotice();
+    try {
+      const data = await apiJson(`/api/groups/${encodeURIComponent(raw)}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...deviceHeaders() },
+        body: JSON.stringify({ device_id: myDevice.id }),
+      });
+      els.groupJoinInput.value = "";
+      showNotice(data.already_member
+        ? `你已经在「${data.group.name}」里了。`
+        : `已加入「${data.group.name}」，现在可以和组里的设备互传了。`, "ok");
+      await loadGroups();
+      await loadDevices();
+    } catch (err) {
+      showNotice(err.message);
+    } finally {
+      els.groupJoinBtn.disabled = false;
+    }
+  });
 
   /* ---------- 收件箱 ---------- */
   function renderInbox(data) {
@@ -788,6 +1003,12 @@
 
   /* ---------- 发送至设备 ---------- */
   function openSendDialog(mode = "file") {
+    if (!myDevice) {
+      // 投递（发文件或文本给设备）必须实名：先把本设备加进设备列表
+      showNotice('投递给设备要先把本设备加进设备列表，并且和对方在同一个设备组。只想给对方文件就用"生成分享码"，让对方凭码取件。');
+      switchTab("devices");
+      return;
+    }
     if (mode === "text" && !state.text.trim()) {
       showNotice('先在「上传文件」里写一段文本。');
       switchTab("upload");
@@ -807,6 +1028,7 @@
     els.sendFromName.placeholder = myDevice ? "" : "匿名设备";
     els.sendModal.classList.remove("hidden");
     loadDevices().then(renderSendTargets);
+    loadGroups();
   }
 
   function closeSendDialog() {
@@ -817,15 +1039,32 @@
   }
 
   function renderSendTargets() {
-    els.sendNoDevices.classList.toggle("hidden", deviceCache.length > 0);
-    els.sendTargets.innerHTML = deviceCache.map((device) => `
-      <li><label class="pick">
-        <input type="checkbox" value="${escapeHtml(device.id)}">
-        <span class="pick-body">
-          <strong>${escapeHtml(device.name)}${myDevice && device.id === myDevice.id ? "（本设备）" : ""}</strong>
-          <span class="muted">${lastSeenText(device.idle_seconds)} · 收件箱 ${device.inbox_count} 个文件</span>
-        </span>
-      </label></li>`).join("");
+    const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
+    els.sendNoDevices.classList.toggle("hidden", others.length > 0);
+    els.sendNeedDevice.classList.toggle("hidden", !!myDevice);
+    els.sendFromRow.classList.toggle("hidden", !myDevice);
+    if (myDevice) els.sendFromName.value = myDevice.name;
+
+    // 按"我和它共同的设备组"分区：同一组里的设备排在一起，一眼看出哪些能发
+    const buckets = new Map();
+    deviceCache.forEach((device) => {
+      const mine = myDevice && device.id === myDevice.id;
+      const names = (device.shared_groups || []).map((group) => group.name);
+      const key = mine ? "本设备（发给自己）" : (names.length ? names.join(" · ") : "不在同一个设备组");
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push({ device, mine });
+    });
+
+    els.sendTargets.innerHTML = [...buckets.entries()].map(([title, items]) => `
+      <li class="pick-group-title">${escapeHtml(title)}</li>
+      ${items.map(({ device, mine }) => `
+        <li><label class="pick">
+          <input type="checkbox" value="${escapeHtml(device.id)}">
+          <span class="pick-body">
+            <strong>${escapeHtml(device.name)}${mine ? "（本设备）" : ""}</strong>
+            <span class="muted">${lastSeenText(device.idle_seconds)} · 收件箱 ${device.inbox_count} 个文件</span>
+          </span>
+        </label></li>`).join("")}`).join("");
     els.sendTargets.querySelectorAll("input").forEach((box) => box.addEventListener("change", updateSendCount));
     updateSendCount();
   }
@@ -923,6 +1162,7 @@
 
   els.tabDevices.addEventListener("click", () => {
     loadDevices();
+    loadGroups();
     if (myDevice) refreshInbox({ markSeen: true });
   });
 

@@ -45,11 +45,36 @@ const INBOX = {
     download_url: "http://localhost/share/api/download/TXT12345",
   }],
 };
+const GROUP_ID = "grp_7KQ2M4XZ9B3D";
+const GROUPS = { count: 1, groups: [{
+  id: GROUP_ID, name: "家里的设备", owner_device_id: "dev_AAAABBBB", created_at: nowIso,
+  owner_name: "我的笔记本", member_count: 2, my_role: "owner", is_owner: true }] };
+const GROUP_DETAIL = { group: GROUPS.groups[0], members: [
+  { id: "dev_AAAABBBB", name: "我的笔记本", role: "owner", joined_at: nowIso, last_seen_at: nowIso, idle_seconds: 12, is_self: true },
+  { id: "dev_CCCCDDDD", name: "室友的 iPad", role: "member", joined_at: nowIso, last_seen_at: nowIso, idle_seconds: 3600, is_self: false },
+] };
+// 设备列表：服务端只返回"自己 + 同组设备"，并带共同组标签
+const SCOPED_DEVICES = { count: 2, self_id: "dev_AAAABBBB", scope: "groups", devices: [
+  { ...DEVICES[0], is_self: true, shared_groups: [] },
+  { ...DEVICES[1], is_self: false, shared_groups: [{ id: GROUP_ID, name: "家里的设备" }] },
+] };
+
 const routes = {
   "GET /api/stats": [200, { shares: 3, shares_bytes: 2048, devices: 2, transfers: 1, disk_files: 3, disk_bytes: 2048,
     max_upload_mb: 200, max_text_chars: 10000, default_ttl_seconds: 3600, min_ttl_seconds: 60, max_ttl_seconds: 2592000,
     cleanup_interval_seconds: 60, device_idle_days: 30, max_targets_per_send: 20 }],
-  "GET /api/devices": [200, { count: DEVICES.length, devices: DEVICES }],
+  "GET /api/devices": [200, { count: 0, devices: [], scope: "unregistered" }],       // 不带令牌不再列名单
+  "GET /api/devices?device_id=dev_AAAABBBB": [200, SCOPED_DEVICES],
+  "GET /api/groups?device_id=dev_AAAABBBB": [200, GROUPS],
+  [`GET /api/groups/${GROUP_ID}?device_id=dev_AAAABBBB`]: [200, GROUP_DETAIL],
+  "POST /api/groups": [201, { group: GROUPS.groups[0], share_hint: "把组 id 发给别人" }],
+  [`POST /api/groups/${GROUP_ID}/join`]: [200, { joined: false, already_member: true, group: GROUPS.groups[0] }],
+  [`POST /api/groups/${GROUP_ID}/leave`]: [200, { left: true, group_id: GROUP_ID, name: "家里的设备" }],
+  [`DELETE /api/groups/${GROUP_ID}?device_id=dev_AAAABBBB`]: [200, { dissolved: true, group_id: GROUP_ID, name: "家里的设备" }],
+  [`DELETE /api/groups/${GROUP_ID}/members/dev_CCCCDDDD?device_id=dev_AAAABBBB`]: [200, { removed: true }],
+  [`PATCH /api/groups/${GROUP_ID}`]: [200, { group: { ...GROUPS.groups[0], name: "新组名" } }],
+  "POST /api/groups/grp_NOSUCHGROUP99/join": [404, { detail: { error: "group_not_found",
+    message: "设备组不存在：组 id 可能抄错了，也可能已经被管理员解散" } }],
   "POST /api/devices": [201, { id: "dev_AAAABBBB", name: "我的笔记本", created_at: nowIso, last_seen_at: nowIso,
     idle_seconds: 0, inbox_count: 0, token: "tok_secret_value" }],
   "GET /api/devices/dev_AAAABBBB/inbox": [200, INBOX],
@@ -123,6 +148,9 @@ Object.defineProperty(window.navigator, "serviceWorker", {
   configurable: true,
   value: { register: async (url, options) => { swCalls.push({ url, options }); return { update() {} }; } },
 });
+// jsdom 不实现 confirm / prompt（真实浏览器都有）：组操作里的确认框一律当"点确定"
+window.confirm = () => true;
+window.prompt = (_message, defaultValue) => `新组名-${defaultValue ? "改" : "新"}`;
 // jsdom 不实现 scrollIntoView（真实浏览器都有）
 window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 // jsdom 这个版本没有 matchMedia，补一个（真实浏览器都有）
@@ -167,6 +195,25 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   check('未登记时显示登记表单、隐藏「本设备」卡片', () => {
     assert.ok(visible($("#device-setup")));
     assert.ok(!visible($("#device-self")));
+  });
+
+  check("未登记时：设备组表单收起、提示要先添加本设备", () => {
+    assert.ok(visible($("#group-need-device")), "没有提示先添加本设备");
+    assert.ok(!visible($("#group-create-row")), "未登记就能建组");
+    assert.ok(!visible($("#group-join-row")), "未登记就能加入组");
+  });
+  check("未登记时点「发送至设备」被拦住并切到设备页（投递必须实名）", () => {
+    $("#tab-upload").click();
+    const input = $("#text-input");                 // 空文件时发送按钮是禁用的，先用文本路径把按钮点亮
+    input.value = "想直接发给设备的一段话";
+    input.dispatchEvent(new window.Event("input"));
+    $("#text-send-btn").click();
+    assert.ok(!visible($("#send-modal")), "未登记却打开了发送面板");
+    assert.ok($("#notice").textContent.includes("投递给设备要紧先把本设备加进设备列表")
+      || $("#notice").textContent.includes("加进设备列表"), $("#notice").textContent);
+    assert.ok($("#panel-devices").classList.contains("active"), "没有切到设备页");
+    input.value = "";                               // 收拾干净，别影响后面的文本用例
+    input.dispatchEvent(new window.Event("input"));
   });
 
   $("#device-name-input").value = "我的笔记本";
@@ -234,6 +281,90 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual($("#inbox-refresh").getAttribute("aria-busy"), null, "aria-busy 没清掉");
     assert.ok(!$("#inbox-refresh").disabled, "按钮还禁用着");
     assert.ok($("#inbox-count").textContent.includes("共 2 个"), $("#inbox-count").textContent);
+  });
+
+  console.log("== 设备组 ==");
+  await new Promise((r) => setTimeout(r, 30));            // 等登记后自动拉一次设备组
+  check("设备组卡片：名称 / 组 id / 成员 / 管理员标记", () => {
+    const card = $("#group-list .group-card");
+    assert.ok(card, "没有渲染组卡片");
+    assert.ok(card.textContent.includes("家里的设备"), card.textContent);
+    assert.strictEqual(card.querySelector(".group-id").textContent.trim(), "grp_7KQ2M4XZ9B3D");
+    assert.ok(card.textContent.includes("我是管理员"), "没有管理员标记");
+    assert.ok(card.textContent.includes("2 台设备"), card.textContent);
+    assert.ok(card.textContent.includes("室友的 iPad（成员）") || card.textContent.includes("室友的 iPad"), "成员名单没显示");
+    assert.ok(card.querySelector('[data-act="remove-member"]'), "管理员看不到「移除成员」");
+    assert.ok(card.querySelector('[data-act="dissolve-group"]'), "管理员没有「解散」");
+    assert.ok(!card.querySelector('[data-act="leave-group"]'), "管理员不该有「退出」");
+    assert.ok($("#group-count").textContent.includes("共 1 个"), $("#group-count").textContent);
+  });
+  check("「复制组 id」是手绘 SVG 按钮", () => {
+    const btn = $("#group-list [data-act='copy-group']");
+    assert.ok(btn.querySelector("svg use"), "没有图标");
+    assert.ok(btn.closest("#panel-devices"), "不在设备面板里");
+  });
+  check("设备列表：只列同组设备 + 标出共同组", () => {
+    const rows = [...$("#device-list").querySelectorAll("li")];
+    assert.strictEqual(rows.length, 2, `实际 ${rows.length} 行`);
+    assert.ok(rows[0].textContent.includes("本设备"), rows[0].textContent);
+    assert.ok(rows[1].textContent.includes("家里的设备"), "同组设备没有共同组标签");
+    assert.ok(rows[1].textContent.includes("dev_CCCCDDDD"), rows[1].textContent);
+    assert.ok(!visible($("#device-no-group")), "有同组设备时不该提示「还没加入设备组」");
+    const last = calls.map((c) => c.url).filter((u) => u.startsWith("/api/devices?")).pop();
+    assert.ok(last.includes("device_id=dev_AAAABBBB"), last);
+    assert.ok(calls.some((c) => c.url.startsWith("/api/devices?") && c.headers && c.headers["X-Device-Token"] === "tok_secret_value"),
+      "拉设备列表没带令牌");
+  });
+
+  $("#group-name-input").value = "公司设备";
+  $("#group-create-btn").click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("「创建设备组」：POST /api/groups 带 device_id 与组名，并提示组 id", () => {
+    const hit = calls.filter((c) => c.url === "/api/groups" && c.method === "POST").pop();
+    assert.ok(hit, "没有 POST /api/groups");
+    const body = JSON.parse(hit.body);
+    assert.strictEqual(body.device_id, "dev_AAAABBBB");
+    assert.strictEqual(body.name, "公司设备");
+    assert.strictEqual(hit.headers["X-Device-Token"], "tok_secret_value", "没带设备令牌");
+    assert.ok($("#notice").textContent.includes("grp_7KQ2M4XZ9B3D"), $("#notice").textContent);
+    assert.strictEqual($("#group-name-input").value, "", "创建后输入框没清空");
+  });
+
+  $("#group-join-input").value = "grp_7KQ2M4XZ9B3D";
+  $("#group-join-btn").click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("「加入设备组」：POST /join 带 device_id，提示已加入", () => {
+    const hit = calls.filter((c) => c.url.includes("/join")).pop();
+    assert.ok(hit, "没有 join 请求");
+    assert.strictEqual(JSON.parse(hit.body).device_id, "dev_AAAABBBB");
+    assert.ok($("#notice").textContent.includes("已经在") || $("#notice").textContent.includes("已加入"),
+      $("#notice").textContent);
+    assert.strictEqual($("#group-join-input").value, "", "加入后输入框没清空");
+  });
+
+  $("#group-join-input").value = "grp_NOSUCHGROUP99";
+  $("#group-join-btn").click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("加入不存在的组：显示服务端的中文原因", () => {
+    assert.ok($("#notice").textContent.includes("设备组不存在"), $("#notice").textContent);
+  });
+
+  $("#group-list [data-act='remove-member']").click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("管理员移除成员：DELETE 带 ?device_id= 且刷新列表", () => {
+    const hit = calls.filter((c) => c.method === "DELETE" && c.url.includes("/members/")).pop();
+    assert.ok(hit, "没有移除请求");
+    assert.ok(hit.url.includes(`/api/groups/${GROUP_ID}/members/dev_CCCCDDDD?device_id=dev_AAAABBBB`), hit.url);
+    assert.ok($("#notice").textContent.includes("已移出"), $("#notice").textContent);
+  });
+
+  $("#group-list [data-act='dissolve-group']").click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("管理员解散组：DELETE 用查询参数传 device_id", () => {
+    const hit = calls.filter((c) => c.method === "DELETE" && c.url.includes(`/api/groups/${GROUP_ID}?`)).pop();
+    assert.ok(hit, "没有解散请求");
+    assert.ok(hit.url.endsWith("device_id=dev_AAAABBBB"), hit.url);
+    assert.ok($("#notice").textContent.includes("已解散"), $("#notice").textContent);
   });
 
   console.log("== 发文本 ==");
@@ -335,6 +466,10 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   check("弹出面板、列出两台设备", () => {
     assert.ok(visible($("#send-modal")));
     assert.strictEqual(doc.querySelectorAll("#send-targets input").length, 2);
+    const titles = [...doc.querySelectorAll("#send-targets .pick-group-title")].map((el) => el.textContent);
+    assert.strictEqual(titles.length, 2, `分区数不对：${titles.join(" / ")}`);
+    assert.ok(titles.some((t) => t.includes("家里的设备")), `没有「共同设备组」分区：${titles.join(" / ")}`);
+    assert.ok(titles.some((t) => t.includes("本设备")), `没有「发给自己」分区：${titles.join(" / ")}`);
     assert.strictEqual($("#send-confirm").disabled, true, "未选设备时不该能发");
   });
   check("设备相关输入框与分享码输入框同款盒子样式（不是浏览器默认外观）", () => {
