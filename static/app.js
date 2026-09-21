@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 8;
+  const ASSET_VERSION = 9;
 
   const $ = (id) => document.getElementById(id);
 
@@ -572,10 +572,46 @@
 
   const deviceHeaders = () => (myDevice ? { "X-Device-Token": myDevice.token } : {});
 
+  /**
+   * 服务端已经不认这台设备（被清掉了 / 令牌对不上）时，本机缓存必须跟着清：
+   * 否则设备页一直显示一台服务端没有的设备，注销还注销不掉。
+   */
+  function forgetLocalDevice(message) {
+    const had = !!myDevice;
+    saveMyDevice(null);
+    renderSelf();
+    if (had) {
+      showNotice(message || "服务端已经没有这台设备了（被清理或换过浏览器），已自动清除本机登记："
+        + "点「创建设备组」或「加入设备组」重新开始，会自动把这台设备登记回去。");
+    }
+  }
+
+  /** 服务端的错误码：404 device_not_found / 403 bad_device_token 都属于「本机缓存过期」。 */
+  const staleDeviceCode = (payload) => {
+    const detail = (payload && (payload.detail ?? payload)) || {};
+    return detail.error === "device_not_found" || detail.error === "bad_device_token";
+  };
+
+  /**
+   * 只有「拿本机当前设备的令牌」发出的请求，被服务端拒绝才能断定本机缓存过期。
+   * 粘贴别人的令牌去试探（导入令牌流程）失败，不能把当前设备清掉。
+   */
+  const usesStoredDevice = (options) => {
+    const header = (options.headers || {})["X-Device-Token"];
+    return !!myDevice && header === myDevice.token;
+  };
+
   async function apiJson(url, options = {}) {
     const res = await fetch(url, options);
     const payload = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(errorMessage(payload, `请求失败（HTTP ${res.status}）`));
+    if (!res.ok) {
+      const err = new Error(errorMessage(payload, `请求失败（HTTP ${res.status}）`));
+      if (staleDeviceCode(payload) && usesStoredDevice(options)) {
+        err.deviceStale = true;
+        forgetLocalDevice();
+      }
+      throw err;
+    }
     return payload;
   }
 
@@ -625,6 +661,7 @@
       renderDeviceList();
       return deviceCache;
     } catch (err) {
+      if (err.deviceStale) return [];              // 本机登记刚被清掉，界面由 renderSelf 重画，别再报错
       els.deviceList.innerHTML = `<li class="muted">设备列表读取失败：${escapeHtml(err.message)}</li>`;
       return [];
     }
@@ -678,6 +715,7 @@
       renderGroups();
       return groupCache;
     } catch (err) {
+      if (err.deviceStale) return [];              // 本机登记刚被清掉，界面由 renderSelf 重画，别再报错
       els.groupList.innerHTML = `<li class="muted">设备组读取失败：${escapeHtml(err.message)}</li>`;
       return [];
     }
@@ -882,6 +920,7 @@
       }
       return true;
     } catch (err) {
+      if (err.deviceStale) return false;           // 本机登记刚被清掉，提示已经在 forgetLocalDevice 里给过
       showNotice(err.message);
       return false;
     }
@@ -995,7 +1034,14 @@
       await loadDevices();
       showNotice("本设备已从设备列表注销。", "ok");
     } catch (err) {
-      showNotice(err.message);
+      if (err.deviceStale) {
+        // 上面已经自动清掉本机登记了，这里只补一句说明
+        showNotice(`${err.message}已清除本机登记。`);
+      } else if (confirm(`${err.message}\n\n服务端联系不上，只清除本机登记吗？（清除后可以重新「创建设备组」或「加入设备组」）`)) {
+        forgetLocalDevice("已清除本机登记。");
+      } else {
+        showNotice(err.message);
+      }
     }
   });
 

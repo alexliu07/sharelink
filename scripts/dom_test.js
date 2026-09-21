@@ -103,7 +103,11 @@ const routes = {
 // 文本下载：fetch 的 .text() 走这张表（其它路径仍返回 JSON 串）
 const TEXT_ROUTES = { "/api/download/TXT12345": "取件文本第一行\n第二行：中文与 ASCII 混排" };
 const calls = [];
+const STALE = { value: false };              // 服务端把本设备删了（本机缓存过期）的模拟开关
 const route = (method, url, ctx = {}) => {
+  if (STALE.value && (url.startsWith("/api/devices/") || url.startsWith("/api/groups"))) {
+    return [404, { detail: { error: "device_not_found", message: "设备不存在或已注销" } }];
+  }
   const hit = routes[`${method} ${url}`];
   if (typeof hit === "function") return hit(ctx);
   return hit || [404, { detail: { error: "not_found", message: `未打桩: ${method} ${url}` } }];
@@ -703,6 +707,23 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   await new Promise((r) => setTimeout(r, 20));
   check("剪贴板为空：给出可操作的提示", () => {
     assert.ok($("#notice").textContent.includes("剪贴板"), $("#notice").textContent);
+  });
+
+  console.log("== 服务端已经删掉这台设备（本机缓存过期）==");
+  STALE.value = true;
+  $("#group-refresh").click();                      // 一次带令牌的请求 → 404 device_not_found
+  await new Promise((r) => setTimeout(r, 80));
+  check("带令牌的请求收到「设备不存在」→ 自动清除本机登记并提示重新建组/加入", () => {
+    assert.strictEqual(window.localStorage.getItem("sharelink.device"), null, "本机登记没被清掉");
+    assert.ok(visible($("#device-setup")), "没有回到「还没加入设备组」的样子");
+    assert.ok(!visible($("#device-self")), "设备卡还显示着一台服务端没有的设备");
+    assert.strictEqual($("#group-list").textContent.includes("设备组读取失败"), false, "还在报读取失败");
+    assert.ok($("#notice").textContent.includes("清除本机登记"), $("#notice").textContent);
+  });
+  check("清掉之后还能重新走一遍：建组会重新登记本设备", () => {
+    STALE.value = false;
+    assert.strictEqual($("#group-create-btn").disabled, false, "建组按钮不可用");
+    assert.strictEqual($("#group-join-btn").disabled, false, "加入按钮不可用");
   });
 
   window.close();
