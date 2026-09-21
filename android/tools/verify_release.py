@@ -11,6 +11,8 @@
 """
 import hashlib
 import io
+import json
+import time
 import re
 import struct
 import sys
@@ -52,8 +54,34 @@ DEX_NEEDLES = [
 ]
 
 
+def fetch_sum():
+    """README 里的 .sha256 资产偶尔会被下载 CDN 回 504；重试几次后改走 API 资产接口，
+    仍拿不到就只告警——签名/dex/分享目标这几项校验不依赖它。"""
+    last = None
+    for attempt in range(3):
+        try:
+            return fetch(SUM_URL).split()[0].decode()
+        except Exception as exc:                       # noqa: BLE001 - 网络层什么都可能抛
+            last = exc
+            time.sleep(2 * (attempt + 1))
+    try:
+        api = "https://api.github.com/repos/alexliu07/sharelink/releases/tags/android-latest"
+        req = urllib.request.Request(api, headers={"User-Agent": "ShareLink-ReleaseCheck/1",
+                                                  "Accept": "application/vnd.github+json"})
+        assets = json.loads(urllib.request.urlopen(req, timeout=60).read())
+        asset = next(a for a in assets["assets"] if a["name"].endswith(".sha256"))
+        req2 = urllib.request.Request(asset["url"], headers={"User-Agent": "ShareLink-ReleaseCheck/1",
+                                                             "Accept": "application/octet-stream"})
+        return urllib.request.urlopen(req2, timeout=60).read().decode().split()[0]
+    except Exception:                                  # noqa: BLE001
+        print(f"  ⚠️  拿不到 CI 的 .sha256（{last}）——跳过一致性比对，其余校验照跑")
+        return None
+
+
 def fetch(url):
-    with urllib.request.urlopen(url, timeout=120) as resp:
+    # 必须带一个像样的 UA：默认的 Python-urllib 会被 GitHub 的下载 CDN 回 504/403
+    req = urllib.request.Request(url, headers={"User-Agent": "ShareLink-ReleaseCheck/1"})
+    with urllib.request.urlopen(req, timeout=180) as resp:
         return resp.read()
 
 
@@ -96,10 +124,14 @@ def main():
     print(f"下载 {APK_URL}")
     apk = fetch(APK_URL)
     print(f"  大小 {len(apk)} 字节")
-    ci_sum = fetch(SUM_URL).split()[0].decode()
+    ci_sum = fetch_sum()
     local = hashlib.sha256(apk).hexdigest()
-    ok1 = local == ci_sum
-    print(f"  sha256 本地 {local[:16]}… / CI {ci_sum[:16]}… → {'✅ 一致' if ok1 else '❌ 不一致'}")
+    if ci_sum is None:
+        ok1 = True                                    # 拿不到基线：不据此判失败，改用下面的指纹校验
+        print(f"  sha256 本地 {local[:16]}…（无 CI 基线可比）")
+    else:
+        ok1 = local == ci_sum
+        print(f"  sha256 本地 {local[:16]}… / CI {ci_sum[:16]}… → {'✅ 一致' if ok1 else '❌ 不一致'}")
 
     z = zipfile.ZipFile(io.BytesIO(apk))
     manifest, dex = z.read("AndroidManifest.xml"), z.read("classes.dex")
