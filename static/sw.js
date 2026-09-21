@@ -9,8 +9,10 @@
  *
  * 注意：服务端对 sw.js / app.js / style.css 发 `Cache-Control: no-cache`，
  * 否则 Cloudflare 会按默认的 .js 规则缓存 4 小时，SW 更新要等 4 小时才生效。
+ * 另外 index.html 里引用 app.js / style.css 都带 `?v=N`（见 app.js 的 ASSET_VERSION）：
+ * 前端一改就 +1，已经进过别人浏览器缓存的旧副本会被新 URL 直接绕开。
  */
-const VERSION = "sharelink-v1";
+const VERSION = "sharelink-v3";
 
 // 预缓存清单：相对 URL 以 sw.js 自身位置为基准（部署在 /share/ 下也能work）
 const SHELL = [

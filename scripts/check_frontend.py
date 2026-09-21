@@ -109,8 +109,29 @@ else:
         pwa_problems.append(f"apple-touch-icon 指向的文件不存在：{match.group(1)}")
     elif match and match.group(1).split("?")[0].endswith(".svg"):
         pwa_problems.append("apple-touch-icon 指向 SVG —— iOS 只认 PNG")
-    elif match and "?" not in match.group(1):
+    elif match and "?v=" not in match.group(1):
         pwa_problems.append("apple-touch-icon 的 URL 没带版本串 ?v=N（换了图标 iOS 不认新图）")
+
+# ---- 外壳资源（app.js / style.css）必须相对引用 + 带版本串，且版本号三处一致 ----
+# 绝对路径 /app.js 落在 /share/ 作用域外、也没带版本串，一旦被浏览器或 CDN 缓存过旧副本，
+# 页面就会出现"HTML 是新的、JS 还是旧的"这种半新半旧状态（实测就是这样）。
+asset_versions = {}
+for asset in ("app.js", "style.css"):
+    pattern = (rf'<script src="{asset}\?v=(\d+)"' if asset.endswith(".js")
+               else rf'<link rel="stylesheet" href="{asset}\?v=(\d+)"')
+    found = re.search(pattern, html)
+    if not found:
+        pwa_problems.append(f"index.html 里 {asset} 必须相对引用且带版本串（形如 {asset}?v=N）")
+        continue
+    asset_versions[asset] = found.group(1)
+declared = re.search(r"const ASSET_VERSION = (\d+)", js)
+if not declared:
+    pwa_problems.append("app.js 里没有声明 ASSET_VERSION（前端版本号）")
+else:
+    for asset, version in asset_versions.items():
+        if version != declared.group(1):
+            pwa_problems.append(
+                f"{asset} 的 ?v={version} 与 app.js 的 ASSET_VERSION={declared.group(1)} 不一致")
 
 dup_ids = sorted({i for i in html_ids if html.count(f'id="{i}"') > 1})
 EMOJI = re.compile('[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
