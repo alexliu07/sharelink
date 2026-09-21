@@ -85,7 +85,10 @@ cd android && gradle assembleRelease     # 产物在 app/build/outputs/apk/relea
 - **发**：分享文件时先问"要发给哪台设备吗"（多选，不选＝只生成分享码），
   选中就走 `POST /api/transfers`（`file` + `targets` + `from_device_id` + `note`，带自己的令牌）——
   **一次上传同时拿到分享码和投递**，不会为了投递再传一遍大文件
-- 主页「选择文件发给设备」：不用分享面板也能发（`ACTION_GET_CONTENT` 选文件 → 勾设备 → 投递）
+- 主页「选择文件发给设备」：不用分享面板也能发（`ACTION_GET_CONTENT` 选文件 → 勾设备 → 投递）。
+  投递目标用**自建勾选列表**（`ScrollView` + 一行一个 `CheckBox`）而不是系统的 `setMultiChoiceItems`：
+  部分 ROM 上那种列表会整片不渲染，用户只看到标题和按钮、点「确定」就静默变成"只拿分享码"（等于没发出去）。
+  现在主按钮叫「发送给选中的设备」，一台都没勾时只提示、不发请求也不关对话框；没有别的设备时也会提示一句
 - 还有：改名字（`PATCH /api/devices/{id}`，`HttpURLConnection` 不认 PATCH，靠反射塞方法名）、
   注销设备、导出令牌到剪贴板、从剪贴板导入令牌（导入时先读一次收件箱验证令牌有效才保存，
   和网页端的做法一致；两边格式互通：`{sharelink_device:1, id, name, token}`）
