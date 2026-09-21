@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     private TextView progressLabel;
     private LinearLayout inboxList;
     private TextView inboxStatus;
+    private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
 
     /* ================================================================ 生命周期 */
 
@@ -509,43 +510,74 @@ public class MainActivity extends Activity {
         card.addView(withTop(line("到期后服务器自动删除，不可恢复。分享面板里上传的文件也用这里选的值。",
                 MUTED, 13), 8));
         card.addView(withTop(ttlChips(), 12));
+        ttlStatus = line("", ACCENT, 13);
+        card.addView(withTop(ttlStatus, 10));
+        refreshTtlSummary();
         return card;
     }
 
+    /** 当前有效期文案：写出来一眼就能确认设置生效了（也方便排错）。 */
+    private void refreshTtlSummary() {
+        if (ttlStatus != null) {
+            ttlStatus.setText("当前选择：" + Api.humanLeft(ttlSeconds).replace("剩 ", "")
+                    + "（" + ttlSeconds + " 秒）");
+        }
+    }
+
     private View ttlChips() {
-        final long[] presets = {600L, 3600L, 86400L, 604800L, 2592000L};
-        final String[] labels = {"10 分钟", "1 小时", "1 天", "7 天", "30 天"};
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout first = row();
-        LinearLayout second = row();
-        for (int i = 0; i < presets.length; i++) {
-            final long seconds = presets[i];
-            Button chip = chip(labels[i], seconds);
-            chip.setOnClickListener(v -> {
-                ttlSeconds = seconds;
-                prefs.edit().putLong(KEY_TTL, seconds).apply();
-                refreshTtlChips(wrap);
-            });
-            (i < 3 ? first : second).addView(chip);
-        }
-        wrap.addView(first);
-        wrap.addView(withTop(second, 8));
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 宽度按权重等分：按钮宽度由布局决定（不再由文字内容决定），
+        // 这样无论字体大小/字体缩放都不会有某个档位被挤出可视区
+        wrap.addView(chipRow(wrap, new String[]{"10 分钟", "1 小时", "1 天"},
+                new long[]{600L, 3600L, 86400L}, 3));
+        wrap.addView(withTop(chipRow(wrap, new String[]{"7 天", "30 天"},
+                new long[]{604800L, 2592000L}, 3), 8));
         refreshTtlChips(wrap);
         return wrap;
+    }
+
+    /** 一行有效期按钮；cells = 占几格（不满的用不可见占位补上，保证每行等宽对齐）。 */
+    private LinearLayout chipRow(final View group, String[] labels, long[] presets, int cells) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setBaselineAligned(false);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        for (int i = 0; i < cells; i++) {
+            View cell;
+            if (i < labels.length) {
+                final long seconds = presets[i];
+                Button chip = chip(labels[i], seconds);
+                chip.setOnClickListener(v -> {
+                    ttlSeconds = seconds;
+                    prefs.edit().putLong(KEY_TTL, seconds).apply();
+                    refreshTtlChips(group);
+                    refreshTtlSummary();
+                });
+                cell = chip;
+            } else {
+                cell = new View(this);          // 占位，只为让上一行的按钮宽度加起来对齐
+            }
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            params.rightMargin = i == cells - 1 ? 0 : dp(8);
+            cell.setLayoutParams(params);
+            row.addView(cell);
+        }
+        return row;
     }
 
     private Button chip(String text, long seconds) {
         Button view = button(text, false);
         view.setTag(seconds);
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        view.setPadding(dp(12), dp(7), dp(12), dp(7));
+        view.setPadding(dp(6), dp(7), dp(6), dp(7));   // 宽度交给权重，左右少留一点免得文字被挤
         view.setMinHeight(dp(36));
         view.setSingleLine(true);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.rightMargin = dp(8);
-        view.setLayoutParams(params);
         return view;
     }
 

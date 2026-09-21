@@ -12,8 +12,8 @@ android {
         applicationId = "me.skylare.sharelink"
         minSdk = 24
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
     }
 
     // 显式指向仓库里的 keystore。不要用 signingConfigs.getByName("debug")：
