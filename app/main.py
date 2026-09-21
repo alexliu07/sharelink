@@ -38,6 +38,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, U
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.datastructures import UploadFile as StarletteUploadFile  # fastapi.UploadFile 是它的子类，multipart 解析出的是父类实例
 
 from . import cleanup, codes, config, db, devices, storage
 
@@ -112,7 +113,7 @@ def _store(fileobj, original_name: str, content_type: Optional[str], raw_ttl) ->
     return record, seconds
 
 
-def _save_and_record(file: UploadFile, raw_ttl) -> tuple[db.FileRecord, int]:
+def _save_and_record(file: StarletteUploadFile, raw_ttl) -> tuple[db.FileRecord, int]:
     """上传接口用的薄封装：关掉上传流再交给 _store。"""
     try:
         return _store(file.file, file.filename or "", file.content_type, raw_ttl)
@@ -446,32 +447,40 @@ def _page_url(request: Request) -> str:
     return f"{base}{config.PUBLIC_BASE_PATH}/"
 
 
-@app.post("/api/share-target")
-def android_share_target(
-    request: Request,
-    file: Optional[List[UploadFile]] = File(default=None),
-    title: str = Form(""),
-    text: str = Form(""),
-    ttl: Optional[str] = Form(default=None),
-    ttl_seconds: Optional[int] = Form(default=None),
-):
-    """安卓「分享 → ShareLink」的落地点（manifest 的 share_target 指向这里）。
+def _wants_json(request: Request) -> bool:
+    """第三方分享 App 要 JSON、浏览器要跳转：显式 `?response=json`，或 Accept 里既没 html 也没通配。"""
+    if request.query_params.get("response") == "json":
+        return True
+    accept = request.headers.get("accept", "*/*")
+    return "text/html" not in accept and "*/*" not in accept
 
-    收到文件（或多个里的第一个）或纯文本就生成分享码，然后 303 回首页带上 `?code=`，
-    页面逻辑与普通上传完全一致 —— 分享完立刻看到码，不用手打。
+
+@app.post("/api/share-target")
+async def android_share_target(request: Request):
+    """分享落地点：浏览器（PWA 分享面板）和第三方分享 App（Hupl / MyShare / 自动化）都打这里。
+
+    - 表单字段名不固定：文件名/附言认 `title`/`text`/`url`，文件部分**任意字段名**都收（取第一个），
+      因为各家客户端 multipart 的 part 名不一样（`file`/`myfile`/`files[]`…）。
+    - 默认 303 回首页带 `?code=`（浏览器走这条，看完就有码）。
+    - 传 `?response=json` 或 Accept 里不要 HTML 时，改成 200 返回 JSON，方便第三方 App 用正则把分享链接抠出来。
     """
-    raw_ttl = ttl_seconds if ttl_seconds is not None else ttl
-    uploads = [item for item in (file or []) if item is not None]
+    form = await request.form()
+    uploads = [value for _, value in form.multi_items() if isinstance(value, StarletteUploadFile)]
+    title = str(form.get("title") or "")
+    text = str(form.get("text") or form.get("url") or "")
+    raw_ttl = form.get("ttl_seconds") or form.get("ttl")
 
     if uploads:
         if len(uploads) > 1:
             logger.info("分享面板一次送了 %d 个文件，只取第一个：%s", len(uploads), uploads[0].filename)
         for extra in uploads[1:]:
-            extra.file.close()
+            await extra.close()
         record, _ = _save_and_record(uploads[0], raw_ttl)
     else:
         body = text.strip() or title.strip()
         if not body:
+            if _wants_json(request):
+                return JSONResponse({"error": "empty_share", "message": "分享的内容是空的"}, status_code=400)
             return RedirectResponse(f"{_page_url(request)}?share=empty", status_code=303)
         stem = storage.safe_original_name(title).strip() if title.strip() else ""  # 空标题会得到"未命名文件"
         name = f"{stem}.txt" if stem else "分享文本.txt"
@@ -480,6 +489,10 @@ def android_share_target(
 
     logger.info("分享面板收到 %s（%d 字节，%s）→ 分享码 %s",
                 record.original_name, record.size, record.content_type, record.code)
+    if _wants_json(request):
+        return JSONResponse({**_share_urls(request, record.code), "code": record.code,
+                             "filename": record.original_name, "size": record.size,
+                             "sha256": record.sha256, "expires_at": record.expires_at})
     return RedirectResponse(f"{_share_urls(request, record.code)['share_url']}&share=ok", status_code=303)
 
 

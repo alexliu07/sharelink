@@ -320,3 +320,42 @@ class TestShareTarget:
 
         assert resp.status_code == 303
         assert "share=empty" in resp.headers["location"]
+
+    def test_any_file_field_name_is_accepted(self, client):
+        """第三方分享 App 的 multipart 字段名五花八门，不能只认 "file"。"""
+        resp = client.post("/api/share-target", files={"myfile": ("笔记.md", b"# hi", "text/markdown")},
+                           follow_redirects=False)
+
+        assert resp.status_code == 303
+        info = client.get(f"/api/files/{self._Redirected(resp).code}").json()
+        assert info["filename"] == "笔记.md"
+
+    def test_response_json_mode_returns_code_and_links(self, client):
+        """`?response=json`：给 Hupl/MyShare 这类 App 用，正则能从响应里抠出分享链接。"""
+        resp = client.post("/api/share-target?response=json", files={"file": ("a.png", b"\x89PNG", "image/png")})
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["code"] in payload["share_url"]
+        assert payload["download_url"].endswith(f"/api/download/{payload['code']}")
+        assert payload["filename"] == "a.png"
+        assert payload["expires_at"]
+
+    def test_accept_header_without_html_gets_json(self, client):
+        resp = client.post("/api/share-target", files={"file": ("a.txt", b"x", "text/plain")},
+                           headers={"accept": "application/json"})
+
+        assert resp.status_code == 200
+        assert resp.json()["code"]
+
+    def test_url_param_is_used_when_text_missing(self, client):
+        result = self._post(client, data={"title": "链接", "url": "https://example.org"})
+        info = client.get(f"/api/files/{result.code}").json()
+
+        assert info["filename"] == "链接.txt"
+
+    def test_empty_share_in_json_mode_is_400(self, client):
+        resp = client.post("/api/share-target?response=json", data={"text": " "})
+
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "empty_share"
