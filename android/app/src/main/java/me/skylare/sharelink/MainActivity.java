@@ -409,14 +409,14 @@ public class MainActivity extends Activity {
         content.addView(title("ShareLink"));
         if (device == null) {
             content.addView(registerSection());
-            content.addView(withTop(codeCard(), 14));
             content.addView(withTop(ttlCard(), 14));
+            content.addView(withTop(codeCard(), 14));      // 「凭分享码下载」统一排在最后
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
-            content.addView(withTop(codeCard(), 14));
             content.addView(withTop(ttlCard(), 14));
             content.addView(withTop(actionsCard(), 14));
+            content.addView(withTop(codeCard(), 14));      // 接收（凭分享码下载）排在「发文件给别的设备」下面
         }
         show(content);
         if (device != null) {

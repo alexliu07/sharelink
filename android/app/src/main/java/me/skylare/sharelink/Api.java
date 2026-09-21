@@ -29,7 +29,7 @@ final class Api {
     static final String URL_SHARE_TARGET = BASE + "/api/share-target?response=json";
     static final String URL_DEVICES = BASE + "/api/devices";
     static final String URL_TRANSFERS = BASE + "/api/transfers";
-    static final String UA = "ShareLink-Android/1.9";
+    static final String UA = "ShareLink-Android/1.10";
 
     private Api() {
     }
