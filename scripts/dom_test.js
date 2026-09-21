@@ -258,6 +258,32 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     $("#install-btn").click();
     assert.ok(prompted, "没有调用 prompt()");
   });
+  check("「下载APK」按钮：指向 Release 里的 APK，图标是 sprite 里的手绘 SVG（不是 emoji/位图）", () => {
+    const apk = $("#apk-download-btn");
+    assert.ok(apk, "按钮不存在");
+    assert.strictEqual(apk.tagName, "A", "应该是个能直接下载的链接");
+    assert.strictEqual(
+      apk.getAttribute("href"),
+      "https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLink.apk",
+      `href=${apk.getAttribute("href")}`);
+    assert.ok(visible(apk), "按钮被隐藏");
+    const use = apk.querySelector("use");
+    assert.ok(use, "没有 <use> 图标");
+    assert.strictEqual(use.getAttribute("href"), "#icon-apk", `图标引用 ${use.getAttribute("href")}`);
+    assert.ok(apk.textContent.includes("下载APK"), `文案是「${apk.textContent.trim()}」`);
+  });
+  check("装成 PWA 后（standalone）：收起安装引导，但「下载APK」依然可见", () => {
+    // standalone 是靠 matchMedia("(display-mode: standalone)") 判的；jsdom 里把它桩成 true 再走一遍 appinstalled
+    window.matchMedia = (query) => ({ matches: query.includes("standalone"), media: query,
+      addEventListener() {}, removeEventListener() {} });
+    window.dispatchEvent(new window.Event("appinstalled"));
+    assert.ok(!visible($("#install-main")), "安装引导没收起");
+    assert.ok(!visible($("#install-btn")), "安装按钮还在");
+    assert.ok(!visible($("#install-hint-os")), "安装步骤提示还在");
+    assert.ok(visible($("#install-card")), "整个安装卡片被藏了");
+    assert.ok(visible($("#apk-download-btn")), "「下载APK」跟着一起消失了");
+    assert.ok($("#notice").textContent.includes("已装到设备上"), $("#notice").textContent);
+  });
   check("页面加载后注册了 service worker（相对路径 + 作用域）", () => {
     window.dispatchEvent(new window.Event("load"));
     const call = swCalls.at(-1);

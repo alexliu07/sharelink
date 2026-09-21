@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 3;
+  const ASSET_VERSION = 4;
 
   const $ = (id) => document.getElementById(id);
 
@@ -57,6 +57,7 @@
     deviceSetup: $("device-setup"),
     deviceSelf: $("device-self"),
     installCard: $("install-card"),
+    installMain: $("install-main"),
     installBtn: $("install-btn"),
     installHint: $("install-hint-os"),
     deviceExportBtn: $("device-export-btn"),
@@ -771,15 +772,14 @@
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);   // iPadOS 伪装成 Mac
 
   function renderInstallCard() {
-    if (isStandalone()) {
-      els.installCard.classList.add("hidden");   // 已经装过了，不唠叨
-      return;
-    }
+    // 卡片本身一直显示：里面还有「下载APK」，装成 PWA 之后也是有用的（换设备 / 给别人的手机装）
     els.installCard.classList.remove("hidden");
-    const canPrompt = Boolean(installPrompt);
+    const standalone = isStandalone();
+    const canPrompt = !standalone && Boolean(installPrompt);
+    els.installMain.classList.toggle("hidden", standalone);   // 装过了就只收起"装成应用"这段引导
     els.installBtn.classList.toggle("hidden", !canPrompt);
-    els.installHint.classList.toggle("hidden", canPrompt);
-    if (!canPrompt) {
+    els.installHint.classList.toggle("hidden", canPrompt || standalone);
+    if (!canPrompt && !standalone) {
       els.installHint.innerHTML = isIosSafari()
         ? `${icon("icon-ios-share")}<span>Safari 底部点「分享」→「添加到主屏幕」→「添加」。</span>`
         : '<span>用 Chrome 打开本页，右上角菜单里选「安装应用」或「添加到主屏幕」。</span>';
@@ -793,7 +793,7 @@
   });
   window.addEventListener("appinstalled", () => {
     installPrompt = null;
-    els.installCard.classList.add("hidden");
+    renderInstallCard();             // 收起安装引导，但卡片里的「下载APK」留着
     showNotice("已装到设备上，以后从桌面图标直接进。", "ok");
   });
   els.installBtn.addEventListener("click", async () => {

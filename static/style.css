@@ -410,6 +410,35 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .install-body .hint { margin: 6px 0 0; display: flex; align-items: flex-start; gap: 6px; }
 .install-body .hint .icon { width: 15px; height: 15px; margin-top: 2px; color: var(--accent-2); }
 .install-card .primary.inline { flex: 0 0 auto; align-self: center; }
+/* 「装成应用」这段引导在已装成 PWA 时会整段收起（见 app.js 的 renderInstallCard），
+   但它和「下载APK」是同一个卡片的两部分，宽度各自算，互不牵连 */
+.install-main {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.install-apk {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.install-apk .ghost.inline {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 18px;
+  font-size: 14px;
+  text-decoration: none;
+}
+.install-apk .ghost.inline .icon { width: 1.2em; height: 1.2em; color: var(--accent-2); }
+.install-apk .hint { margin: 0; max-width: 260px; font-size: 12.5px; }
 
 /* --------- 设备令牌备份/恢复 --------- */
 .token-box {
