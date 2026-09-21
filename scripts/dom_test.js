@@ -176,6 +176,44 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(list.textContent.includes("<img src=x"), "原始文本应原样显示");
   });
 
+  console.log("== 收件箱「刷新」按钮 ==");
+  check("刷新按钮在本设备卡片里、文案/图标齐全且是手绘描边", () => {
+    const btn = $("#inbox-refresh");
+    assert.ok(btn, "按钮不存在");
+    assert.ok(btn.closest("#device-self"), "刷新按钮不在收件箱所在的本设备卡片里");
+    assert.strictEqual(btn.textContent.trim(), "刷新", `文案是「${btn.textContent.trim()}」`);
+    const use = btn.querySelector("svg.icon use");
+    assert.ok(use, "按钮里没有 svg 图标");
+    assert.strictEqual(use.getAttribute("href"), "#icon-refresh");
+    assert.ok(doc.querySelector("symbol#icon-refresh"), "sprite 里没有 #icon-refresh");
+    assert.ok(doc.querySelectorAll("symbol#icon-refresh path").length >= 2, "图标里 path 少于 2 条");
+    assert.ok(/\p{Extended_Pictographic}/u.test("🔄") && !/\p{Extended_Pictographic}/u.test(btn.textContent), "按钮文案里混进了 emoji");
+  });
+  check("收件箱小标题与刷新按钮是同一行（.section-head 是 flex 两端对齐）", () => {
+    const head = doc.querySelector(".section-head");
+    assert.ok(head, "没有 .section-head");
+    assert.strictEqual(window.getComputedStyle(head).display, "flex", "CSS 上不是 flex（可能忘了写样式）");
+    assert.ok(head.contains($("#inbox-refresh")), "刷新按钮不在这一行里");
+    assert.ok(head.querySelector(".section-title"), "这一行里没有小标题");
+    assert.ok(head.contains($("#inbox-count")), "计数没有跟着标题走");
+  });
+
+  const inboxHits = () => calls.filter((c) => c.url.endsWith("/inbox")).length;
+  const inboxBefore = inboxHits();
+  $("#inbox-refresh").click();
+  check("点刷新后立刻进入忙碌态（禁用 + aria-busy + 计数行提示）", () => {
+    assert.ok($("#inbox-refresh").disabled, "按钮没禁用");
+    assert.strictEqual($("#inbox-refresh").getAttribute("aria-busy"), "true");
+    assert.strictEqual($("#inbox-count").textContent, "刷新中…", $("#inbox-count").textContent);
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  check("刷新真的重新请求了收件箱，并恢复按钮状态与计数", () => {
+    assert.ok(inboxHits() > inboxBefore, `没有重新请求收件箱（${inboxBefore} → ${inboxHits()}）`);
+    assert.strictEqual($("#inbox-refresh").getAttribute("aria-busy"), null, "aria-busy 没清掉");
+    assert.ok(!$("#inbox-refresh").disabled, "按钮还禁用着");
+    assert.ok($("#inbox-count").textContent.includes("共 1 个"), $("#inbox-count").textContent);
+  });
+
   console.log("== 发送至设备 ==");
   const file = new window.File([new Uint8Array([1, 2, 3])], "报告.pdf", { type: "application/pdf" });
   Object.defineProperty($("#file-input"), "files", { value: [file], configurable: true });

@@ -318,6 +318,31 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 .section-title .icon { width: 16px; height: 16px; }
 
+/* 小标题 + 右侧操作按钮（例如收件箱的「刷新」）：一行两端对齐，窄屏也不挤 */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 24px 0 10px;
+}
+.section-head .section-title { margin: 0; min-width: 0; }
+.section-head .section-title .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-head .ghost {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.section-head .ghost .icon { width: 16px; height: 16px; }
+/* 刷新中：图标转圈（尊重 prefers-reduced-motion） */
+#inbox-refresh[aria-busy="true"] .icon { animation: sharelink-spin .9s linear infinite; }
+#inbox-refresh:disabled { opacity: .6; cursor: default; }
+@keyframes sharelink-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  #inbox-refresh[aria-busy="true"] .icon { animation: none; }
+}
+
 .device-list, .inbox, .device-pick { list-style: none; margin: 0; padding: 0; }
 .device-list li, .inbox-item, .device-pick li {
   display: flex;

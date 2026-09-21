@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 4;
+  const ASSET_VERSION = 5;
 
   const $ = (id) => document.getElementById(id);
 
@@ -77,6 +77,7 @@
     inboxList: $("inbox-list"),
     inboxCount: $("inbox-count"),
     inboxEmpty: $("inbox-empty"),
+    inboxRefresh: $("inbox-refresh"),
     deviceList: $("device-list"),
     deviceCount: $("device-count"),
     deviceEmpty: $("device-empty"),
@@ -563,7 +564,7 @@
   }
 
   async function refreshInbox({ markSeen = false } = {}) {
-    if (!myDevice) return;
+    if (!myDevice) return false;
     try {
       const data = await apiJson(`/api/devices/${myDevice.id}/inbox`, { headers: deviceHeaders() });
       renderInbox(data);
@@ -574,10 +575,27 @@
         setBadge(0);
         els.inboxCount.textContent = `共 ${data.count} 个 · 0 个未读`;
       }
+      return true;
     } catch (err) {
       showNotice(err.message);
+      return false;
     }
   }
+
+  /** 收件箱右上角「刷新」：手动重拉一次，过程中图标转圈、失败也明说（不静默） */
+  async function refreshInboxByHand() {
+    if (!els.inboxRefresh) return;
+    els.inboxRefresh.disabled = true;
+    els.inboxRefresh.setAttribute("aria-busy", "true");
+    els.inboxCount.textContent = "刷新中…";
+    try {
+      if (!(await refreshInbox())) els.inboxCount.textContent = "刷新失败";
+    } finally {
+      els.inboxRefresh.disabled = false;
+      els.inboxRefresh.removeAttribute("aria-busy");
+    }
+  }
+  els.inboxRefresh?.addEventListener("click", refreshInboxByHand);
 
   els.inboxList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-remove]");

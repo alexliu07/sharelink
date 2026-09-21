@@ -75,6 +75,7 @@ public class MainActivity extends Activity {
     private TextView progressLabel;
     private LinearLayout inboxList;
     private TextView inboxStatus;
+    private Button inboxRefresh;      // 收件箱「刷新」按钮（手动重拉，过程中禁用）
     private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
     private TextView codeStatus;      // 「凭分享码下载」卡上的进度 / 报错说明
 
@@ -516,6 +517,16 @@ public class MainActivity extends Activity {
         // 标题占满左侧、按钮贴右边：两者之间自然留出间距，也不会被挤到一起
         head.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         header.addView(head);
+        Button refresh = button("刷新", false);
+        refresh.setSingleLine(true);
+        refresh.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        LinearLayout.LayoutParams refreshParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        refreshParams.leftMargin = dp(12);
+        refresh.setLayoutParams(refreshParams);
+        refresh.setOnClickListener(v -> manualRefreshInbox());
+        header.addView(refresh);
+        inboxRefresh = refresh;                         // loadInbox()/renderInbox() 用它收尾
         Button seen = button("全部标记已读", false);
         seen.setSingleLine(true);                       // 再窄也不折成两行（宁可省略号）
         seen.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -776,16 +787,43 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 final JSONObject json = new JSONObject(Api.get(url, deviceToken()));
-                ui.post(() -> renderInbox(json));
+                ui.post(() -> {
+                    inboxRefreshDone();
+                    renderInbox(json);
+                });
             } catch (final Exception e) {
                 final String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> {
+                    inboxRefreshDone();
                     if (inboxStatus != null) {
                         inboxStatus.setText("收件箱读取失败：" + message);
                     }
                 });
             }
         }).start();
+    }
+
+    /** 收件箱「刷新」：手动重拉一次，过程中按钮禁用并给出提示（成功失败都会恢复） */
+    private void manualRefreshInbox() {
+        if (device == null) {
+            return;
+        }
+        if (inboxRefresh != null) {
+            inboxRefresh.setEnabled(false);
+            inboxRefresh.setText("刷新中");
+        }
+        if (inboxStatus != null) {
+            inboxStatus.setText("正在刷新收件箱…");
+        }
+        loadInbox();
+    }
+
+    /** 一次收件箱读取结束（成功或失败）后把刷新按钮恢复可用 */
+    private void inboxRefreshDone() {
+        if (inboxRefresh != null) {
+            inboxRefresh.setEnabled(true);
+            inboxRefresh.setText("刷新");
+        }
     }
 
     private void renderInbox(JSONObject json) {

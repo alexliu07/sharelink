@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -57,6 +57,12 @@
       <path d="M20.5 12.5v5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-5"/>
       <path d="M3.5 12.5 6.5 4h11l3 8.5"/>
       <path d="M9.2 12.5h1.9l.9 1.8h2l.9-1.8h1.9"/>
+    </symbol>
+    <!-- 刷新：一段约 300° 的圆弧 + 右上角折向箭头（手绘描边，不用 emoji / 位图 / 图标字体）。
+         圆弧圆心 (12,12) 半径约 8.3，缺口留在右上，箭头与缺口对齐。 -->
+    <symbol id="icon-refresh" viewBox="0 0 24 24">
+      <path d="M19.8 14.8a8.28 8.28 0 1 1-1.95-8.61L22.1 10.2"/>
+      <path d="M22.1 4.6v5.6h-5.5"/>
     </symbol>
     <symbol id="icon-plus" viewBox="0 0 24 24">
       <path d="M12 5v14"/><path d="M5 12h14"/>
@@ -273,7 +279,10 @@
           </div>
         </div>
 
-        <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-inbox"></use></svg>发给我的文件 <span class="muted" id="inbox-count"></span></h3>
+        <div class="section-head">
+          <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-inbox"></use></svg>发给我的文件 <span class="muted" id="inbox-count"></span></h3>
+          <button class="ghost" id="inbox-refresh" title="刷新收件箱" aria-label="刷新收件箱"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
+        </div>
         <ul class="inbox" id="inbox-list"></ul>
         <p class="hint hidden" id="inbox-empty">还没有人发文件给你。</p>
       </div>
@@ -320,6 +329,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
