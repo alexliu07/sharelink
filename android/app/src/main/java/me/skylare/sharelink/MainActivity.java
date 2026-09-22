@@ -1446,8 +1446,6 @@ public class MainActivity extends Activity {
             loadGroups();
         } else {
             addTokenImportRows(card);                       // 未登记时给老设备留一条「认领原设备」的路
-            card.addView(withTop(line("在相册 / 文件管理里点「分享」→ 选 ShareLink，文件会先上传并给出分享码，"
-                    + "也可以顺手发给同组设备。", MUTED, 12), 12));
         }
         return card;
     }
