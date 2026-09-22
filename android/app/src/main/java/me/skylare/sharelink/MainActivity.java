@@ -475,18 +475,15 @@ public class MainActivity extends Activity {
         LinearLayout content = column();
         content.addView(title("ShareLink"));
         if (device == null) {
-            content.addView(groupCard());                   // 建组/加入会自动登记本机，不再有单独的登记步骤
-            content.addView(withTop(ttlCard(), 14));
-            content.addView(withTop(textCard(), 14));      // 没登记也能发文本（只拿分享码）
-            content.addView(withTop(codeCard(), 14));      // 「凭分享码下载」统一排在最后
+            content.addView(sendCard());                   // 发送：有效期 + 发文件 + 发文本合成一栏
+            content.addView(withTop(codeCard(), 14));      // 凭分享码下载（接收）
+            content.addView(withTop(groupCard(), 14));     // 设备组排在接收下面；建组/加入会自动登记本机
         } else {
             content.addView(deviceCard());
             content.addView(withTop(inboxCard(), 14));
-            content.addView(withTop(groupCard(), 14));      // 设备组：只有同组设备之间才能互传
-            content.addView(withTop(ttlCard(), 14));
-            content.addView(withTop(actionsCard(), 14));
-            content.addView(withTop(textCard(), 14));      // 发文本：跟发文件一个流程
-            content.addView(withTop(codeCard(), 14));      // 接收（凭分享码下载）排到最后
+            content.addView(withTop(sendCard(), 14));      // 发送：有效期 + 发文件 + 发文本合成一栏
+            content.addView(withTop(codeCard(), 14));      // 凭分享码下载（接收）
+            content.addView(withTop(groupCard(), 14));     // 设备组：排在接收下面
         }
         show(content);
         if (device != null) {
@@ -706,15 +703,23 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** 上传有效期：与服务端 / 网页版一致的五档预设（分享面板上传的文件也用这里选的值）。 */
-    private View ttlCard() {
+    /** 「发送」：一个卡片里放有效期 + 发文件 + 发文本（三块内容，共用一套有效期）。 */
+    private View sendCard() {
         LinearLayout card = card();
-        card.addView(line("上传有效期", FG, 16));
-        card.addView(withTop(ttlChips(), 12));
-        ttlStatus = line("", ACCENT, 13);
-        card.addView(withTop(ttlStatus, 10));
-        refreshTtlSummary();
+        card.addView(line("发送", FG, 16));
+        addTtlSection(card);
+        addFileSection(card);
+        addTextSection(card);
         return card;
+    }
+
+    /** 上传有效期：与服务端 / 网页版一致的五档预设（分享面板上传的文件也用这里选的值）。 */
+    private void addTtlSection(LinearLayout card) {
+        card.addView(withTop(line("上传有效期", FG, 14), 16));
+        card.addView(withTop(ttlChips(), 10));
+        ttlStatus = line("", ACCENT, 13);
+        card.addView(withTop(ttlStatus, 8));
+        refreshTtlSummary();
     }
 
     /** 当前有效期文案：写出来一眼就能确认设置生效了（也方便排错）。 */
@@ -799,10 +804,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 「发文本」：写一段字，既能只生成分享码，也能挑设备直接投递（跟发文件同一套流程与有效期）。 */
-    private View textCard() {
-        LinearLayout card = card();
-        card.addView(line("发文本", FG, 16));
+    /** 「发文本」小节：写一段字，既能只生成分享码，也能挑设备直接投递（跟发文件同一套流程与有效期）。 */
+    private void addTextSection(LinearLayout card) {
+        card.addView(withTop(line("发文本", FG, 14), 18));
         final EditText input = new EditText(this);
         input.setHint("粘贴或输入要发送的文字…");
         input.setTextColor(FG);
@@ -836,7 +840,6 @@ public class MainActivity extends Activity {
         });
         send.setOnClickListener(v -> startTextShare(input.getText().toString()));
         card.addView(withTop(send, 12));
-        return card;
     }
 
     /** 点「发送这段文本」：登记过的设备先问发给谁（含「只拿分享码」），没登记就直接拿码。 */
@@ -942,9 +945,9 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private View actionsCard() {
-        LinearLayout card = card();
-        card.addView(line("发文件给别的设备", FG, 16));
+    /** 「发文件给别的设备」小节：选文件 → 勾设备 → 投递（不勾就是普通分享码）。 */
+    private void addFileSection(LinearLayout card) {
+        card.addView(withTop(line("发文件给别的设备", FG, 14), 18));
         Button pick = button("选择文件发给设备", true);
         pick.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -956,11 +959,10 @@ public class MainActivity extends Activity {
                 toast("这台设备没有文件选择器");
             }
         });
-        card.addView(withTop(pick, 12));
+        card.addView(withTop(pick, 10));
         Button site = button("打开网页版", false);
         site.setOnClickListener(v -> openUrl(Api.BASE + "/"));
         card.addView(withTop(site, 8));
-        return card;
     }
 
     private void loadInbox() {
@@ -1577,6 +1579,8 @@ public class MainActivity extends Activity {
             actions.addView(rename, actionCell(false));
 
             Button dissolve = button("解散设备组", false);
+            dissolve.setTextColor(DANGER);                       // 危险操作标红
+            dissolve.setBackground(rounded(0x33FF7A8A, 10));
             dissolve.setOnClickListener(v -> confirmDialog("解散设备组",
                     "解散「" + groupName + "」？组内成员关系会清空（已经收到的文件不受影响）。", "解散",
                     () -> groupAction("正在解散设备组…", () -> {

@@ -32,7 +32,7 @@ final class Api {
     static final String URL_TEXTS = BASE + "/api/texts";
     /** 设备组：建组 / 列表 / 详情 / 加入 / 退出 / 移除成员 / 改名 / 解散。 */
     static final String URL_GROUPS = BASE + "/api/groups";        // 发文本（JSON）
-    static final String UA = "ShareLink-Android/1.19";
+    static final String UA = "ShareLink-Android/1.20";
 
     private Api() {
     }
