@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -237,7 +237,6 @@
           <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg></span>
           <div class="install-body">
             <strong>把 ShareLink 装成应用</strong>
-            <p class="hint hidden" id="install-hint-os"></p>
           </div>
           <button class="primary inline hidden" id="install-btn"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg>装到本设备</button>
         </div>
@@ -253,8 +252,6 @@
           <span class="dz-icon"><svg class="icon" aria-hidden="true"><use href="#icon-group"></use></svg></span>
           <div>
             <strong>本设备还没加入设备组</strong>
-            <p class="hint">在下面点「创建设备组」会自动把本设备加进这个组（你就是管理员）；其他设备拿到组 id 粘贴「加入设备组」即可。
-              本设备的名字按浏览器自动起，之后随时可改；令牌只保存在这个浏览器里，不会上传。</p>
           </div>
         </div>
       </div>
@@ -305,15 +302,12 @@
                  placeholder="粘贴组 id，例如 grp_7KQ2M4XZ9B3D">
           <button class="primary inline" id="group-join-btn"><svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>加入设备组</button>
         </div>
-        <p class="hint hidden" id="group-need-device">本设备还没登记：点一颗按钮就会先自动把它加进设备列表（名字按浏览器自动起，之后可改）。</p>
-
         <ul class="group-list" id="group-list"></ul>
         <p class="hint hidden" id="group-empty">还没有加入任何设备组。</p>
       </section>
 
       <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg>同组设备 <span class="muted" id="device-count"></span></h3>
       <ul class="device-list" id="device-list"></ul>
-      <p class="hint hidden" id="device-empty">本设备还没加入设备组。点上面「创建设备组」或用对方给的组 id「加入设备组」，就能看到同一组里的其他设备。</p>
       <p class="hint hidden" id="device-no-group">你还不在任何设备组里：上面创建或加入一个组之后，这里才会显示可以互传的设备。</p>
     </section>
 
@@ -354,6 +348,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

@@ -207,9 +207,8 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(!visible($("#device-self")));
   });
 
-  check("未登记时：表单照样能用，并提示会自动登记本设备", () => {
-    assert.ok(visible($("#group-need-device")), "没有「点按钮会自动登记」的提示");
-    assert.ok($("#group-need-device").textContent.includes("自动"), $("#group-need-device").textContent);
+  check("未登记时：两颗按钮就能用（页面不留说明文字）", () => {
+    assert.ok(!$("#group-need-device"), "描述性提示应该已删掉");
     assert.ok(visible($("#group-create-row")), "未登记时建组表单被收起");
     assert.ok(visible($("#group-join-row")), "未登记时加入表单被收起");
     assert.ok(visible($("#device-setup")), "未登记时提示区不见了");
@@ -538,11 +537,10 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   });
 
   console.log("== PWA：安装引导 / service worker ==");
-  check("未安装时显示安装卡片，且给的是文字步骤（jsdom 不是 iOS）", () => {
+  check("没装成应用、浏览器又不给一键安装时：不留纯文字引导，「下载APK」还在", () => {
     assert.ok(visible($("#install-card")), "安装卡片没出现");
-    assert.ok($("#install-btn").classList.contains("hidden"), "没有 beforeinstallprompt 时不该显示按钮");
-    assert.ok(visible($("#install-hint-os")), "应显示安装步骤提示");
-    assert.ok($("#install-hint-os").textContent.includes("Chrome"), $("#install-hint-os").textContent);
+    assert.ok(!visible($("#install-main")), "没有按钮就该整段收起（不留说明文字）");
+    assert.ok(visible($("#apk-download-btn")), "「下载APK」被一起藏了");
   });
   let prompted = false;
   check("收到 beforeinstallprompt 后出现安装按钮，点了会调 prompt()", () => {
@@ -551,8 +549,8 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     event.prompt = () => { prompted = true; };
     event.userChoice = Promise.resolve({ outcome: "accepted" });
     window.dispatchEvent(event);
+    assert.ok(visible($("#install-main")), "能一键安装时应显示引导");
     assert.ok(visible($("#install-btn")), "安装按钮没出现");
-    assert.ok($("#install-hint-os").classList.contains("hidden"), "有按钮时不该再显示步骤");
     $("#install-btn").click();
     assert.ok(prompted, "没有调用 prompt()");
   });
@@ -577,7 +575,6 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     window.dispatchEvent(new window.Event("appinstalled"));
     assert.ok(!visible($("#install-main")), "安装引导没收起");
     assert.ok(!visible($("#install-btn")), "安装按钮还在");
-    assert.ok(!visible($("#install-hint-os")), "安装步骤提示还在");
     assert.ok(visible($("#install-card")), "整个安装卡片被藏了");
     assert.ok(visible($("#apk-download-btn")), "「下载APK」跟着一起消失了");
     assert.ok($("#notice").textContent.includes("已装到设备上"), $("#notice").textContent);

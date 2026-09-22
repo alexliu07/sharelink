@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 11;
+  const ASSET_VERSION = 12;
 
   const $ = (id) => document.getElementById(id);
 
@@ -59,7 +59,6 @@
     installCard: $("install-card"),
     installMain: $("install-main"),
     installBtn: $("install-btn"),
-    installHint: $("install-hint-os"),
     deviceCopyBtn: $("device-copy-btn"),
     deviceImportApplyBtn: $("device-import-apply-btn"),
     selfName: $("self-name"),
@@ -83,12 +82,10 @@
     rKind: $("r-kind"),
     deviceList: $("device-list"),
     deviceCount: $("device-count"),
-    deviceEmpty: $("device-empty"),
     deviceNoGroup: $("device-no-group"),
     groupCount: $("group-count"),
     groupList: $("group-list"),
     groupEmpty: $("group-empty"),
-    groupNeedDevice: $("group-need-device"),
     groupCreateRow: $("group-create-row"),
     groupNameInput: $("group-name-input"),
     groupCreateBtn: $("group-create-btn"),
@@ -662,7 +659,6 @@
   function renderDeviceList() {
     const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
     els.deviceCount.textContent = deviceCache.length ? `共 ${deviceCache.length} 台` : "";
-    els.deviceEmpty.classList.toggle("hidden", deviceCache.length > 0 || !!myDevice);
     // 已登记但一个组都没有：说明清楚为什么列表里只有自己
     els.deviceNoGroup.classList.toggle("hidden", !myDevice || others.length > 0);
     els.deviceList.innerHTML = deviceCache.map((device) => {
@@ -716,7 +712,6 @@
   function renderGroups() {
     els.groupCount.textContent = groupCache.length ? `共 ${groupCache.length} 个` : "";
     els.groupEmpty.classList.toggle("hidden", groupCache.length > 0);
-    els.groupNeedDevice.classList.toggle("hidden", !!myDevice);
 
     els.groupList.innerHTML = groupCache.map((group) => {
       const owner = group.is_owner;
@@ -1215,23 +1210,14 @@
     const mode = window.matchMedia?.("(display-mode: standalone)");   // 极老的浏览器可能没有 matchMedia
     return Boolean(mode?.matches) || window.navigator.standalone === true;
   };
-  const isIosSafari = () =>
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);   // iPadOS 伪装成 Mac
-
   function renderInstallCard() {
     // 卡片本身一直显示：里面还有「下载APK」，装成 PWA 之后也是有用的（换设备 / 给别人的手机装）
     els.installCard.classList.remove("hidden");
     const standalone = isStandalone();
     const canPrompt = !standalone && Boolean(installPrompt);
-    els.installMain.classList.toggle("hidden", standalone);   // 装过了就只收起"装成应用"这段引导
+    // 只有真的能一键安装时才显示这段引导：没有按钮就没有可操作的步骤，不留纯文字说明
+    els.installMain.classList.toggle("hidden", !canPrompt);
     els.installBtn.classList.toggle("hidden", !canPrompt);
-    els.installHint.classList.toggle("hidden", canPrompt || standalone);
-    if (!canPrompt && !standalone) {
-      els.installHint.innerHTML = isIosSafari()
-        ? `${icon("icon-ios-share")}<span>Safari 底部点「分享」→「添加到主屏幕」→「添加」。</span>`
-        : '<span>用 Chrome 打开本页，右上角菜单里选「安装应用」或「添加到主屏幕」。</span>';
-    }
   }
 
   window.addEventListener("beforeinstallprompt", (event) => {
