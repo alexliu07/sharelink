@@ -92,6 +92,22 @@ def fetch_sum():
         return None
 
 
+def fetch_apk_via_api():
+    """走 API 资产接口下载 APK。
+
+    下载 CDN 会给 Release 资产留缓存：web 下载地址在重新构建后可能还发旧副本
+    （症状是大小/sha256 与 CI 打印的不一致，但签名与内容其实已经是新的）。
+    """
+    api = "https://api.github.com/repos/alexliu07/sharelink/releases/tags/android-latest"
+    req = urllib.request.Request(api, headers={"User-Agent": "ShareLink-ReleaseCheck/1",
+                                              "Accept": "application/vnd.github+json"})
+    assets = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    asset = next(a for a in assets["assets"] if a["name"].endswith(".apk"))
+    req2 = urllib.request.Request(asset["url"], headers={"User-Agent": "ShareLink-ReleaseCheck/1",
+                                                        "Accept": "application/octet-stream"})
+    return urllib.request.urlopen(req2, timeout=180).read()
+
+
 def fetch(url):
     # 必须带一个像样的 UA：默认的 Python-urllib 会被 GitHub 的下载 CDN 回 504/403
     req = urllib.request.Request(url, headers={"User-Agent": "ShareLink-ReleaseCheck/1"})
@@ -146,6 +162,17 @@ def main():
     else:
         ok1 = local == ci_sum
         print(f"  sha256 本地 {local[:16]}… / CI {ci_sum[:16]}… → {'✅ 一致' if ok1 else '❌ 不一致'}")
+        if not ok1:
+            try:
+                alt = fetch_apk_via_api()
+                alt_sum = hashlib.sha256(alt).hexdigest()
+                if alt_sum == ci_sum:
+                    print("  ⚠️  下载 CDN 发的是旧副本（缓存）；改用 API 资产接口的内容做下面几项校验")
+                    apk, local, ok1 = alt, alt_sum, True
+                else:
+                    print(f"  ❌ API 资产也不一致（{alt_sum[:16]}…）：这次构建的发布可能没成功")
+            except Exception as exc:                   # noqa: BLE001
+                print(f"  ⚠️  API 资产接口取不到（{exc}）")
 
     z = zipfile.ZipFile(io.BytesIO(apk))
     manifest, dex = z.read("AndroidManifest.xml"), z.read("classes.dex")
