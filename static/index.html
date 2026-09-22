@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -31,6 +31,9 @@
     <symbol id="icon-file" viewBox="0 0 24 24">
       <path d="M14 3H7.5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/>
       <path d="M14 3v5h5"/><path d="M9 13.5h6"/><path d="M9 17h4"/>
+    </symbol>
+    <symbol id="icon-text" viewBox="0 0 24 24">
+      <path d="M4.5 6.5h15"/><path d="M4.5 12h15"/><path d="M4.5 17.5h8.5"/>
     </symbol>
     <symbol id="icon-box" viewBox="0 0 24 24">
       <path d="M20.5 8.2 12 3.5 3.5 8.2v7.6L12 20.5l8.5-4.7z"/>
@@ -128,23 +131,39 @@
       <button class="tab" id="tab-devices" role="tab" aria-selected="false" data-panel="panel-devices"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg>设备<span class="tab-badge hidden" id="inbox-badge">0</span></button>
     </nav>
 
-    <!-- ============================ 上传 ============================ -->
+    <!-- ============================ 发送（文件 / 文本同一个卡片） ============================ -->
     <section class="panel active" id="panel-upload">
-      <div class="dropzone" id="dropzone" tabindex="0" role="button"
-           aria-label="点击或拖拽文件到此处上传">
-        <div class="dz-icon"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg></div>
-        <p class="dz-title">点击选择文件，或把文件拖到这里</p>
-        <p class="dz-hint" id="dz-hint">单文件上限 — MB，默认有效期 1 小时</p>
-        <input type="file" id="file-input" hidden>
+      <div class="field">
+        <label>内容</label>
+        <div class="chips" id="mode-switch">
+          <button class="chip active" id="mode-file" data-mode="file" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg>文件</button>
+          <button class="chip" id="mode-text" data-mode="text" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#icon-text"></use></svg>文本</button>
+        </div>
       </div>
 
-      <div class="picked hidden" id="picked">
-        <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg></span>
-        <div class="picked-meta">
-          <strong id="picked-name">—</strong>
-          <span id="picked-size" class="muted">—</span>
+      <div class="send-pane" id="file-pane">
+        <div class="dropzone" id="dropzone" tabindex="0" role="button"
+             aria-label="点击或拖拽文件到此处上传">
+          <div class="dz-icon"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg></div>
+          <p class="dz-title">点击选择文件，或把文件拖到这里</p>
+          <p class="dz-hint" id="dz-hint">单文件上限 — MB</p>
+          <input type="file" id="file-input" hidden>
         </div>
-        <button class="icon-btn" id="clear-file" title="移除" aria-label="移除文件"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+
+        <div class="picked hidden" id="picked">
+          <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg></span>
+          <div class="picked-meta">
+            <strong id="picked-name">—</strong>
+            <span id="picked-size" class="muted">—</span>
+          </div>
+          <button class="icon-btn" id="clear-file" title="移除" aria-label="移除文件"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+        </div>
+      </div>
+
+      <div class="send-pane hidden" id="text-pane">
+        <textarea id="text-input" class="text-input" rows="5" maxlength="10000" spellcheck="false"
+                  placeholder="粘贴或输入要发送的文字…"></textarea>
+        <p class="hint"><span id="text-count">0</span> / <span id="text-limit">10000</span> 字符</p>
       </div>
 
       <div class="field">
@@ -170,20 +189,6 @@
       <div class="btn-row">
         <button class="primary" id="upload-btn" disabled>生成分享码</button>
         <button class="ghost" id="send-btn" disabled title="直接发给设备列表里的设备"><svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>发送至设备</button>
-      </div>
-
-      <div class="divider"><span>或者，直接发一段文本</span></div>
-
-      <div class="field">
-        <label for="text-input">文本内容</label>
-        <textarea id="text-input" class="text-input" rows="5" maxlength="10000" spellcheck="false"
-                  placeholder="粘贴或输入要发送的文字…"></textarea>
-        <p class="hint"><span id="text-count">0</span> / <span id="text-limit">10000</span> 字符</p>
-      </div>
-
-      <div class="btn-row">
-        <button class="primary" id="text-upload-btn" disabled>生成分享码</button>
-        <button class="ghost" id="text-send-btn" disabled title="直接把这段文本发给设备列表里的设备"><svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>发送至设备</button>
       </div>
 
       <div class="progress hidden" id="progress">
@@ -330,6 +335,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

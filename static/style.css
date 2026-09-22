@@ -131,6 +131,9 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 8px 14px;
   border-radius: 999px;
   border: 1px solid rgba(140, 160, 255, .25);
@@ -366,16 +369,10 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 .section-title .icon { width: 16px; height: 16px; }
 
-/* 上传面板里的分界线：把「发文件」和「发文本」分开，用的是同一套有效期 */
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 22px 0 16px;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--card-border); }
+/* 发送卡片：中间那块内容（拖放区 / 文本框）随时切换，上下两块（有效期、按钮排）不动 */
+.send-pane { margin-top: 14px; }
+#panel-upload > .field:first-child { margin-top: 0; }
+.chip .icon { width: 15px; height: 15px; }
 
 .text-input {
   width: 100%;

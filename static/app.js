@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 20;
+  const ASSET_VERSION = 21;
 
   const $ = (id) => document.getElementById(id);
 
@@ -17,6 +17,10 @@
     dropzone: $("dropzone"),
     fileInput: $("file-input"),
     dzHint: $("dz-hint"),
+    filePane: $("file-pane"),
+    textPane: $("text-pane"),
+    modeFile: $("mode-file"),
+    modeText: $("mode-text"),
     picked: $("picked"),
     pickedName: $("picked-name"),
     pickedSize: $("picked-size"),
@@ -71,8 +75,6 @@
     textInput: $("text-input"),
     textCount: $("text-count"),
     textLimit: $("text-limit"),
-    textUploadBtn: $("text-upload-btn"),
-    textSendBtn: $("text-send-btn"),
     textView: $("text-view"),
     textViewMeta: $("text-view-meta"),
     textBody: $("text-body"),
@@ -104,8 +106,10 @@
     sendPercent: $("send-percent"),
   };
 
+  // mode：发送卡片当前装的是文件还是文本（两种内容共用一套有效期与一排按钮）
   const state = { file: null, text: "", ttl: 3600, uploading: false, share: null, target: null, timer: null,
-    sendMode: "file" };            // sendMode：发送面板当前发的是文件还是文本
+    mode: "file" };
+  let MAX_TEXT_CHARS = 10000;                       // 启动后用 /api/stats 覆盖
 
   /* ---------------------------------------------------------- 小工具 */
   const humanSize = (bytes) => {
@@ -229,6 +233,31 @@
   }
   els.tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.panel.replace("panel-", ""))));
 
+  /* ---------------------------------------------------------- 发送卡片：文件 / 文本 换内容，按钮与有效期共用 */
+  /** 切内容：只换中间那块（拖放区 / 文本框），有效期与「生成分享码 / 发送至设备」不动 */
+  function setMode(mode) {
+    state.mode = mode === "text" ? "text" : "file";
+    const isText = state.mode === "text";
+    els.modeFile.classList.toggle("active", !isText);
+    els.modeText.classList.toggle("active", isText);
+    els.modeFile.setAttribute("aria-pressed", String(!isText));
+    els.modeText.setAttribute("aria-pressed", String(isText));
+    els.filePane.classList.toggle("hidden", isText);
+    els.textPane.classList.toggle("hidden", !isText);
+    updateActionState();
+  }
+  els.modeFile.addEventListener("click", () => setMode("file"));
+  els.modeText.addEventListener("click", () => setMode("text"));
+
+  /** 当前模式有内容才让点：文件看选没选，文本看写了没有（超长也不给点） */
+  function updateActionState() {
+    const ready = state.mode === "text"
+      ? state.text.trim().length > 0 && state.text.length <= MAX_TEXT_CHARS
+      : !!state.file;
+    els.uploadBtn.disabled = !ready || state.uploading;
+    els.sendBtn.disabled = !ready;
+  }
+
   /* ---------------------------------------------------------- 选文件 */
   function pickFile(file) {
     if (!file) return;
@@ -237,8 +266,7 @@
     els.pickedSize.textContent = humanSize(file.size);
     els.picked.classList.remove("hidden");
     els.dropzone.classList.add("hidden");
-    els.uploadBtn.disabled = false;
-    els.sendBtn.disabled = false;
+    setMode("file");                                  // 拖进来/选中的文件就是要发的东西，顺手切回文件模式
     hideNotice();
   }
 
@@ -247,8 +275,7 @@
     els.fileInput.value = "";
     els.picked.classList.add("hidden");
     els.dropzone.classList.remove("hidden");
-    els.uploadBtn.disabled = true;
-    els.sendBtn.disabled = true;
+    updateActionState();
   }
 
   els.dropzone.addEventListener("click", () => els.fileInput.click());
@@ -304,23 +331,17 @@
     els.progress.classList.add("hidden");
     els.barFill.style.width = "0%";
     els.progressText.textContent = "0%";
-    els.uploadBtn.disabled = !state.file;
-    els.sendBtn.disabled = !state.file;
     els.uploadBtn.textContent = "生成分享码";
     state.uploading = false;
-    updateTextState();
+    updateTextState();               // 里面会按当前模式恢复按钮可用状态
   }
 
-  /* ---------------------------------------------------------- 发文本 */
-  let MAX_TEXT_CHARS = 10000;                       // 启动后用 /api/stats 覆盖
-
+  /* ---------------------------------------------------------- 内容与按钮状态 */
   function updateTextState() {
     state.text = els.textInput.value;
     els.textCount.textContent = String(state.text.length);
     els.textCount.classList.toggle("over", state.text.length >= MAX_TEXT_CHARS);
-    const ready = state.text.trim().length > 0 && state.text.length <= MAX_TEXT_CHARS;
-    els.textUploadBtn.disabled = !ready || state.uploading;
-    els.textSendBtn.disabled = !ready;
+    updateActionState();
   }
 
   async function postText({ targets = null } = {}) {
@@ -341,25 +362,25 @@
 
   els.textInput.addEventListener("input", updateTextState);
 
-  els.textUploadBtn.addEventListener("click", async () => {
+  /** 文本模式下的「生成分享码」：走 JSON 接口，不必走 multipart */
+  async function uploadText() {
     if (!state.text.trim()) return;
     hideNotice();
-    els.textUploadBtn.disabled = true;
-    els.textUploadBtn.textContent = "发送中…";
+    els.uploadBtn.disabled = true;
+    els.uploadBtn.textContent = "生成中…";
     let payload = null;
     try {
       payload = await postText();
     } catch (err) {
       showNotice(err.message);
     }
-    els.textUploadBtn.textContent = "生成分享码";
+    els.uploadBtn.textContent = "生成分享码";
     updateTextState();
     if (payload) {                     // 发送成功后再动界面：界面出错不该被当成发送失败
       showResult(payload);
       loadStats();
     }
-  });
-  els.textSendBtn.addEventListener("click", () => openSendDialog("text"));
+  }
 
   function startCountdown(span, expiresAt) {
     if (state.timer) clearInterval(state.timer);
@@ -392,7 +413,14 @@
     els.result.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
+  /** 共用的「生成分享码」：按当前模式走文件上传或文本接口 */
   els.uploadBtn.addEventListener("click", () => {
+    if (state.uploading) return;
+    if (state.mode === "text") uploadText();
+    else uploadFile();
+  });
+
+  function uploadFile() {
     if (!state.file || state.uploading) return;
     hideNotice();
     state.uploading = true;
@@ -425,19 +453,19 @@
         loadStats();
       } else {
         els.progress.classList.add("hidden");
-        els.uploadBtn.disabled = !state.file;
+        updateActionState();
         showNotice(errorMessage(payload, `上传失败（HTTP ${xhr.status}）`));
       }
     });
     xhr.addEventListener("error", () => {
       state.uploading = false;
       els.progress.classList.add("hidden");
-      els.uploadBtn.disabled = !state.file;
       els.uploadBtn.textContent = "生成分享码";
+      updateActionState();
       showNotice("网络错误，上传中断。");
     });
     xhr.send(form);
-  });
+  }
 
   els.copyCode.addEventListener("click", async () => {
     if (!state.share) return;
@@ -1018,25 +1046,23 @@
   });
 
   /* ---------- 发送至设备 ---------- */
-  function openSendDialog(mode = "file") {
+  /** 共用按钮：发的是当前模式里的内容（文件或文本） */
+  function openSendDialog() {
     if (!myDevice) {
       // 投递（发文件或文本给设备）必须实名：先把本设备加进设备列表
       showNotice('投递给设备要先建一个设备组、或用对方给的组 id 加入（在「设备」页点「创建设备组」/「加入设备组」，会自动登记本设备）。只想把文件给对方就用"生成分享码"，让对方凭码取件。');
       switchTab("devices");
       return;
     }
-    if (mode === "text" && !state.text.trim()) {
-      showNotice('先在「上传文件」里写一段文本。');
-      switchTab("upload");
+    if (state.mode === "text" && !state.text.trim()) {
+      showNotice("先写一段文本。");
       return;
     }
-    if (mode === "file" && !state.file) {
-      showNotice('请先在「上传文件」里选择文件。');
-      switchTab("upload");
+    if (state.mode === "file" && !state.file) {
+      showNotice("先选择一个文件。");
       return;
     }
-    state.sendMode = mode;
-    els.sendFile.textContent = mode === "text"
+    els.sendFile.textContent = state.mode === "text"
       ? `将发送：文本（${state.text.length} 字符）· 有效期 ${humanLeft(state.ttl)}`
       : `将发送：${state.file.name}（${humanSize(state.file.size)}）· 有效期 ${humanLeft(state.ttl)}`;
     els.sendModal.classList.remove("hidden");
@@ -1100,7 +1126,7 @@
     const targets = selectedTargets();
     if (!targets.length) return;
 
-    if (state.sendMode === "text") {          // 文本：走 /api/texts，不发 multipart
+    if (state.mode === "text") {               // 文本：走 /api/texts，不发 multipart
       els.sendConfirm.disabled = true;
       els.sendConfirm.textContent = "发送中…";
       els.sendProgress.classList.remove("hidden");

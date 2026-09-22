@@ -188,6 +188,60 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual($("#tab-upload").getAttribute("aria-selected"), "false");
   });
 
+  console.log("== 发送卡片：文件与文本合并在一个卡片里 ==");
+  check("上传页只剩一张发送卡片：分界线没了，旧的两排按钮也没了", () => {
+    assert.ok(!doc.querySelector(".divider"), "还留着「或者，直接发一段文本」那条分界线");
+    assert.ok(!$("#text-upload-btn"), "旧的文本专用「生成分享码」还在");
+    assert.ok(!$("#text-send-btn"), "旧的文本专用「发送至设备」还在");
+    const rows = [...doc.querySelectorAll("#panel-upload .btn-row")];
+    assert.strictEqual(rows.length, 1, `按钮排了 ${rows.length} 排`);
+    assert.ok($("#upload-btn").closest(".btn-row") === rows[0], "「生成分享码」不在那一排里");
+    assert.ok($("#send-btn").closest(".btn-row") === rows[0], "「发送至设备」不在同一排里");
+  });
+  check("有效期与按钮排都在两种模式之外（共用一套，不是各有一份）", () => {
+    const ttlBlocks = [...doc.querySelectorAll("#panel-upload .chips")]
+      .filter((el) => el.querySelector(".chip[data-ttl]"));
+    assert.strictEqual(ttlBlocks.length, 1, `有效期选择器有 ${ttlBlocks.length} 套`);
+    assert.strictEqual(ttlBlocks[0].id, "ttl-chips");
+    assert.strictEqual(doc.querySelectorAll("#panel-upload #custom-ttl").length, 1, "自定义有效期不止一处");
+    for (const id of ["ttl-chips", "upload-btn", "send-btn"]) {
+      const el = $(`#${id}`);
+      assert.ok(!el.closest("#file-pane") && !el.closest("#text-pane"), `#${id} 被塞进了某一种模式里`);
+    }
+  });
+  check("模式切换：文件 / 文本两个 chip 都用手绘 SVG 图标，默认文件模式", () => {
+    const chips = [...doc.querySelectorAll("#mode-switch .chip")];
+    assert.strictEqual(chips.length, 2, `实际 ${chips.length} 个`);
+    assert.deepStrictEqual(chips.map((c) => c.dataset.mode), ["file", "text"]);
+    for (const chip of chips) {
+      const use = chip.querySelector("svg.icon use");
+      assert.ok(use, `chip「${chip.textContent.trim()}」没有图标`);
+      const href = use.getAttribute("href");
+      assert.ok(doc.querySelector(`symbol${href}`), `${href} 在 sprite 里没定义`);
+      assert.ok(doc.querySelectorAll(`symbol${href} path`).length >= 1, `${href} 里没有描边路径`);
+      assert.ok(!/\p{Extended_Pictographic}/u.test(chip.textContent), `chip 文案里混进了 emoji：${chip.textContent.trim()}`);
+    }
+    assert.strictEqual(chips[0].textContent.trim(), "文件", `第一个 chip 是「${chips[0].textContent.trim()}」`);
+    assert.strictEqual(chips[1].textContent.trim(), "文本", `第二个 chip 是「${chips[1].textContent.trim()}」`);
+    assert.ok(chips[0].classList.contains("active"), "默认不是文件模式");
+    assert.ok(visible($("#file-pane")) && !visible($("#text-pane")), "默认应显示文件区");
+  });
+  check("切到文本模式：只换中间那块内容，文件区收起、文本区出现", () => {
+    $("#mode-text").click();
+    assert.ok(!visible($("#file-pane")), "文件区没收起");
+    assert.ok(visible($("#text-pane")), "文本区没出现");
+    assert.ok($("#mode-text").classList.contains("active") && !$("#mode-file").classList.contains("active"),
+      "chip 选中态没跟着切");
+    assert.strictEqual($("#mode-text").getAttribute("aria-pressed"), "true");
+    assert.strictEqual($("#mode-file").getAttribute("aria-pressed"), "false");
+    assert.ok(visible($("#ttl-chips")) && visible($("#upload-btn")) && visible($("#send-btn")),
+      "有效期或按钮跟着被藏了");
+    assert.ok($("#upload-btn").disabled && $("#send-btn").disabled, "没写文本时按钮不该可用");
+    $("#mode-file").click();
+    assert.ok(visible($("#file-pane")) && !visible($("#text-pane")), "切回文件模式没还原");
+    assert.ok($("#upload-btn").disabled, "没选文件时按钮不该可用");
+  });
+
   console.log("== 设备组入口（不再有单独的「添加本设备」步骤）==");
   check("设备区没有单独的「添加本设备」步骤：只剩创建/加入两颗按钮", () => {
     assert.ok(!$("#device-add-btn"), "还有旧的「添加本设备」按钮");
@@ -214,16 +268,18 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   });
   check("未登记时点「发送至设备」被拦住并切到设备页（投递必须实名）", () => {
     $("#tab-upload").click();
-    const input = $("#text-input");                 // 空文件时发送按钮是禁用的，先用文本路径把按钮点亮
+    $("#mode-text").click();                        // 合并后：先在同一个卡片里切到文本模式
+    const input = $("#text-input");
     input.value = "想直接发给设备的一段话";
     input.dispatchEvent(new window.Event("input"));
-    $("#text-send-btn").click();
+    $("#send-btn").click();                         // 共用按钮：发的是当前模式里的文本
     assert.ok(!visible($("#send-modal")), "未登记却打开了发送面板");
     assert.ok($("#notice").textContent.includes("设备组"), `提示没提设备组：${$("#notice").textContent}`);
     assert.ok($("#notice").textContent.includes("分享码"), `提示没给分享码这条退路：${$("#notice").textContent}`);
     assert.ok($("#panel-devices").classList.contains("active"), "没有切到设备页");
     input.value = "";                               // 收拾干净，别影响后面的文本用例
     input.dispatchEvent(new window.Event("input"));
+    $("#mode-file").click();
   });
 
   calls.length = 0;
@@ -442,44 +498,49 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok($("#notice").textContent.includes("已解散"), $("#notice").textContent);
   });
 
-  console.log("== 发文本 ==");
-  check("文本区：空内容时两个按钮禁用，输入后启用且计数跟随", () => {
+  console.log("== 发文本（合并在发送卡片里，按钮与有效期共用）==");
+  $("#mode-text").click();                          // 切到文本模式：同一个卡片换内容
+  check("文本区：空内容时共用的两颗按钮禁用，输入后启用且计数跟随", () => {
     const input = $("#text-input");
     assert.ok(input, "没有文本输入框");
-    assert.ok($("#text-upload-btn").disabled && $("#text-send-btn").disabled, "空文本时按钮不该可用");
+    input.value = "";
+    input.dispatchEvent(new window.Event("input"));
+    assert.ok($("#upload-btn").disabled && $("#send-btn").disabled, "空文本时按钮不该可用");
     assert.strictEqual($("#text-limit").textContent, "10000", "上限没按 /api/stats 显示");
     input.value = "第一行标题\n第二行正文";
     input.dispatchEvent(new window.Event("input"));
     assert.strictEqual($("#text-count").textContent, String(input.value.length));
-    assert.ok(!$("#text-upload-btn").disabled, "有内容后「生成分享码」应可用");
-    assert.ok(!$("#text-send-btn").disabled, "有内容后「发送至设备」应可用");
+    assert.ok(!$("#upload-btn").disabled, "有内容后「生成分享码」应可用");
+    assert.ok(!$("#send-btn").disabled, "有内容后「发送至设备」应可用");
   });
   check("文本超过上限时拦住并标红", () => {
     const input = $("#text-input");
     input.value = "字".repeat(10001);
     input.dispatchEvent(new window.Event("input"));
-    assert.ok($("#text-upload-btn").disabled, "超长还让点");
+    assert.ok($("#upload-btn").disabled, "超长还让点");
+    assert.ok($("#send-btn").disabled, "超长还让发给设备");
     assert.ok($("#text-count").classList.contains("over"), "计数没有标红");
   });
 
   const textInput = $("#text-input");
   textInput.value = "第一行标题\n第二行正文";
   textInput.dispatchEvent(new window.Event("input"));
-  $("#text-upload-btn").click();
+  $("#upload-btn").click();                         // 共用按钮：文本模式下走 /api/texts
   await new Promise((r) => setTimeout(r, 40));
-  check("点「生成分享码」→ POST /api/texts（带 text 与 ttl_seconds）并显示结果", () => {
+  check("文本模式下点共用的「生成分享码」→ POST /api/texts（带 text 与 ttl_seconds）并显示结果", () => {
     const hit = calls.filter((c) => c.url === "/api/texts" && c.method === "POST").pop();
     assert.ok(hit, "没有请求 /api/texts");
     const body = JSON.parse(hit.body);
     assert.strictEqual(body.text, "第一行标题\n第二行正文");
     assert.strictEqual(body.ttl_seconds, 3600);
     assert.ok(!body.targets, "只要分享码时不该带 targets");
+    assert.ok(!calls.some((c) => c.url === "/api/upload"), "文本模式下走成了文件上传");
     assert.strictEqual($("#code-text").textContent, "TX99TX99");
     assert.ok(!$("#r-kind-row").classList.contains("hidden"), "结果里没标出「类型：文本」");
     assert.ok($("#r-kind").textContent.includes("字符"), $("#r-kind").textContent);
   });
 
-  $("#text-send-btn").click();
+  $("#send-btn").click();
   check("「发送至设备」面板认出这次发的是文本", () => {
     assert.ok(!$("#send-modal").classList.contains("hidden"), "面板没打开");
     assert.ok($("#send-file").textContent.includes("文本"), $("#send-file").textContent);
@@ -527,14 +588,24 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(!$("#inbox-list li .text-body"), "再点一次没有收起");
   });
 
-  console.log("== 发送至设备 ==");
+  console.log("== 发送至设备（文件模式：切回文件，同一个卡片换内容）==");
   const file = new window.File([new Uint8Array([1, 2, 3])], "报告.pdf", { type: "application/pdf" });
   Object.defineProperty($("#file-input"), "files", { value: [file], configurable: true });
+  $("#mode-text").click();                        // 先停在文本模式：选中文件应自动切回文件模式
   $("#file-input").dispatchEvent(new window.Event("change"));
   await new Promise((r) => setTimeout(r, 10));
-  check("选文件后「发送至设备」可用", () => {
+  check("选中文件后自动切回文件模式，「发送至设备」可用", () => {
+    assert.ok(visible($("#file-pane")), "选了文件却没切回文件区");
+    assert.ok(!visible($("#text-pane")), "文本区还开着");
+    assert.ok($("#mode-file").classList.contains("active"), "文件 chip 没选中");
     assert.ok(!$("#send-btn").disabled, "按钮仍是 disabled");
     assert.strictEqual($("#picked-name").textContent, "报告.pdf");
+  });
+  // 合并后有效期只有一套：文件模式下改选的档位，直接进投递的 ttl_seconds
+  $("#ttl-chips .chip[data-ttl='86400']").click();
+  check("有效期与文本模式共用同一组 chip：选「1 天」后是那一个 active", () => {
+    assert.ok($("#ttl-chips .chip[data-ttl='86400']").classList.contains("active"));
+    assert.ok(!$("#ttl-chips .chip[data-ttl='3600']").classList.contains("active"), "旧档位没取消选中");
   });
   $("#send-btn").click();
   await new Promise((r) => setTimeout(r, 20));
@@ -589,7 +660,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     const call = calls.find((c) => c.url === "/api/transfers");
     assert.ok(call, "没有发出投递请求");
     assert.strictEqual(call.body.get("targets"), "dev_AAAABBBB,dev_CCCCDDDD");
-    assert.strictEqual(call.body.get("ttl_seconds"), "3600");
+    assert.strictEqual(call.body.get("ttl_seconds"), "86400", "投递用的有效期不是共用 chip 上选的那个");
     assert.strictEqual(call.headers["X-Device-Token"], "tok_secret_value");
     assert.strictEqual(call.body.get("from_device_id"), "dev_AAAABBBB");
     assert.ok(!call.body.has("from_name"), "发文件还带着 from_name（显示名应该一律用设备名）");
