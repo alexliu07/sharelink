@@ -342,6 +342,24 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(calls.some((c) => c.url.startsWith("/api/devices?") && c.headers && c.headers["X-Device-Token"] === "tok_secret_value"),
       "拉设备列表没带令牌");
   });
+  check("窄屏布局：名字与标签同一行且可换行，名字不再被省略号截断", () => {
+    const row = $("#group-list .group-members li");
+    const line = row.querySelector(".device-line");
+    assert.ok(line, "没有 .device-line 容器（标签和名字被拆成两列才会挤成竖排文字）");
+    assert.ok(line.querySelector("strong"), "名字不在 .device-line 里");
+    assert.ok(line.querySelector(".tag"), "标签不在 .device-line 里");
+    assert.strictEqual(window.getComputedStyle(line).flexWrap, "wrap", "标签挤不下时不能换行");
+    const nameStyle = window.getComputedStyle(line.querySelector("strong"));
+    assert.notStrictEqual(nameStyle.textOverflow, "ellipsis", "名字又被省略号截断");
+    assert.notStrictEqual(nameStyle.whiteSpace, "nowrap", "名字又被强制单行");
+    const meta = row.querySelector(".meta");
+    assert.strictEqual(window.getComputedStyle(meta).flexDirection, "column", "说明没排在名字下面");
+    const name = line.querySelector("strong");
+    assert.notStrictEqual(window.getComputedStyle(name).minWidth, "auto",
+      "名字没有最小宽度，窄屏会被压成一列");
+    const tag = line.querySelector(".tag");
+    assert.ok(window.getComputedStyle(tag).flex.startsWith("0 0"), `标签还能被压缩：${window.getComputedStyle(tag).flex}`);
+  });
   check("建组/加入两个表单就在「同组设备」栏下面，操作按钮都在页面上（没有二级页面）", () => {
     assert.ok($("#group-create-row").closest("#panel-devices"), "建组表单不在设备面板里");
     assert.ok($("#group-join-row").closest("#panel-devices"), "加入表单不在设备面板里");

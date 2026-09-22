@@ -306,19 +306,19 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .group-members li {                      /* 每台设备一张小卡（与原来「同组设备」列表同款） */
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 13px;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, .04);
   border: 1px solid var(--card-border);
 }
-.group-members .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.group-members .meta strong {
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.group-members .meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* 名字与标签同一行：挤不下时标签整体换行，绝不把名字压成一列竖排文字 */
+.group-members .device-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 4px; }
+/* 名字至少留 5em：挤不下时让标签（flex: 0 0 auto）换到第二行，而不是把名字压成一列 */
+.group-members .device-line strong { flex: 1 1 auto; min-width: 5em; font-size: 14px; line-height: 1.35; word-break: break-word; }
+.group-members .device-line .tag { flex: 0 0 auto; }
+.group-members .meta .muted { font-size: 12.5px; line-height: 1.4; }
 .group-members .icon-btn { flex: 0 0 auto; }
 .group-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .group-actions .ghost, .group-actions .danger { margin-top: 0; }

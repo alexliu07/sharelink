@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 15;
+  const ASSET_VERSION = 16;
 
   const $ = (id) => document.getElementById(id);
 
@@ -701,13 +701,15 @@
             <li>
               <span class="picked-icon">${icon("icon-devices")}</span>
               <span class="meta">
-                <strong>${escapeHtml(member.name)}</strong>
+                <span class="device-line">
+                  <strong>${escapeHtml(member.name)}</strong>
+                  ${member.is_self
+                    ? '<span class="tag self">本设备</span>'
+                    : `<span class="tag">${escapeHtml(member.id)}</span>`}
+                  <span class="tag">${member.role === "owner" ? "管理员" : "成员"}</span>
+                </span>
                 <span class="muted">${lastSeenText(member.idle_seconds)}${info ? ` · 收件箱 ${info.inbox_count} 个文件` : ""}</span>
               </span>
-              ${member.is_self
-                ? '<span class="tag self">本设备</span>'
-                : `<span class="tag">${escapeHtml(member.id)}</span>`}
-              <span class="tag">${member.role === "owner" ? "管理员" : "成员"}</span>
               ${owner && !member.is_self
                 ? `<button class="icon-btn" data-act="remove-member" data-group="${escapeHtml(group.id)}"
                            data-member="${escapeHtml(member.id)}" title="移出设备组"
