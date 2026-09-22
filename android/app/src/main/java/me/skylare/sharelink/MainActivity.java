@@ -28,6 +28,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -43,7 +44,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -83,7 +86,6 @@ public class MainActivity extends Activity {
     private Button inboxRefresh;
     private LinearLayout groupBox;            // 设备组列表（每次刷新重建里面的行）
     private TextView groupStatus;             // 设备组状态行
-    private AlertDialog activeDialog;         // 当前打开的组详情框（组变更后自动关掉）
     private TextView ttlStatus;       // 「上传有效期」卡上的当前选择说明
     private TextView codeStatus;      // 「凭分享码下载」卡上的进度 / 报错说明
 
@@ -1462,6 +1464,23 @@ public class MainActivity extends Activity {
             try {
                 JSONObject res = new JSONObject(Api.get(Api.URL_GROUPS + "?device_id=" + deviceId(), deviceToken()));
                 JSONArray arr = res.optJSONArray("groups");
+
+                // 设备列表（自己 + 同组）：给成员小卡补「收件箱 N 个文件」，和网页端同一套显示
+                final Map<String, Integer> inboxByDevice = new HashMap<>();
+                try {
+                    JSONObject devices = new JSONObject(Api.get(
+                            Api.URL_DEVICES + "?device_id=" + deviceId(), deviceToken()));
+                    JSONArray list = devices.optJSONArray("devices");
+                    for (int i = 0; list != null && i < list.length(); i++) {
+                        JSONObject one = list.optJSONObject(i);
+                        if (one != null) {
+                            inboxByDevice.put(one.optString("id"), one.optInt("inbox_count"));
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 拿不到就不显示收件箱数，不影响成员名单
+                }
+
                 final List<JSONObject> groups = new ArrayList<>();
                 if (arr != null) {
                     for (int i = 0; i < arr.length(); i++) {
@@ -1469,7 +1488,15 @@ public class MainActivity extends Activity {
                         try {
                             JSONObject detail = new JSONObject(Api.get(Api.URL_GROUPS + "/" + group.optString("id")
                                     + "?device_id=" + deviceId(), deviceToken()));
-                            group.put("members", detail.optJSONArray("members"));
+                            JSONArray members = detail.optJSONArray("members");
+                            for (int m = 0; members != null && m < members.length(); m++) {
+                                JSONObject member = members.optJSONObject(m);
+                                if (member != null) {
+                                    Integer inbox = inboxByDevice.get(member.optString("id"));
+                                    member.put("inbox_count", inbox == null ? -1 : inbox);
+                                }
+                            }
+                            group.put("members", members);
                         } catch (Exception ignored) {
                             // 名单只有组内可见；拉不到就只显示成员数
                         }
@@ -1502,68 +1529,46 @@ public class MainActivity extends Activity {
                 ? "还没有加入任何设备组"
                 : "共 " + groups.size() + " 个设备组");
         for (JSONObject group : groups) {
-            final JSONObject target = group;
-            LinearLayout item = column();
-            item.setPadding(dp(12), dp(12), dp(12), dp(12));
-            item.setBackground(rounded(CARD_SOFT, 12));
-            item.addView(line(group.optString("name") + (group.optBoolean("is_owner") ? "（我是管理员）" : ""), FG, 14));
-            item.addView(withTop(line(group.optString("id"), MUTED, 12), 4));
-            item.addView(withTop(line(group.optInt("member_count") + " 台设备", MUTED, 12), 4));
-            Button manage = button("管理", false);
-            manage.setOnClickListener(v -> showGroupDialog(target));
-            item.addView(withTop(manage, 8));
-            box.addView(withTop(item, 10));
+            box.addView(withTop(groupItem(group), 10));
         }
     }
 
-    /** 组详情对话框：成员名单 + 复制组 id /（管理员）改名、解散 /（成员）退出。 */
-    private void showGroupDialog(final JSONObject group) {
+    /** 一个设备组：组名 / 组 id + 组里的设备 + 组操作，全部摊在这一页上（没有「管理」二级页面）。 */
+    private View groupItem(final JSONObject group) {
         final String groupId = group.optString("id");
         final String groupName = group.optString("name");
         final boolean owner = group.optBoolean("is_owner");
 
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(18), dp(6), dp(18), dp(2));
-        body.addView(line("组 id：" + groupId, MUTED, 12));
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setPadding(dp(12), dp(12), dp(12), dp(12));
+        item.setBackground(rounded(CARD_SOFT, 12));
+        item.addView(line(groupName + (owner ? "（我是管理员）" : ""), FG, 14));
+        item.addView(withTop(line(groupId, MUTED, 12), 4));
 
         JSONArray members = group.optJSONArray("members");
-        if (members == null) {
-            body.addView(withTop(line("成员 " + group.optInt("member_count") + " 台（名单读取失败，稍后可重试）",
-                    MUTED, 12), 8));
+        if (members == null || members.length() == 0) {
+            item.addView(withTop(line(group.optInt("member_count") + " 台设备", MUTED, 12), 8));
         } else {
             for (int i = 0; i < members.length(); i++) {
                 JSONObject member = members.optJSONObject(i);
-                if (member == null) {
-                    continue;
+                if (member != null) {
+                    item.addView(withTop(memberCard(groupId, owner, member), 8));
                 }
-                LinearLayout rowBox = row();
-                rowBox.setPadding(0, dp(6), 0, 0);
-                String label = member.optString("name") + (member.optBoolean("is_self") ? "（本设备）" : "")
-                        + ("owner".equals(member.optString("role")) ? " · 管理员" : " · 成员");
-                rowBox.addView(line(label, FG, 13),
-                        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-                if (owner && !member.optBoolean("is_self")) {
-                    final String memberId = member.optString("id");
-                    final String memberName = member.optString("name");
-                    Button remove = button("移出", false);
-                    remove.setOnClickListener(v -> groupAction("正在移除 " + memberName + "…", () -> {
-                        groupCall("DELETE", "/" + groupId + "/members/" + memberId, null);
-                        return "已把 " + memberName + " 移出设备组";
-                    }));
-                    rowBox.addView(remove);
-                }
-                body.addView(rowBox);
             }
         }
 
+        // 组操作直接放在卡片里：一行等宽格子
         LinearLayout actions = row();
+        actions.setPadding(0, dp(10), 0, 0);
+
         Button copy = button("复制组 id", true);
         copy.setOnClickListener(v -> {
             copyToClipboard("ShareLink 设备组 id", groupId);
             toast("组 id 已复制：" + groupId);
         });
-        actions.addView(copy);
+        actions.addView(copy, actionCell(false));
+
         if (owner) {
             Button rename = button("改组名", false);
             rename.setOnClickListener(v -> promptDialog("改组名", "新的组名", groupName, "保存",
@@ -1571,34 +1576,120 @@ public class MainActivity extends Activity {
                         groupCall("PATCH", "/" + groupId, new JSONObject().put("name", newName));
                         return "组名已改成「" + newName + "」";
                     })));
-            actions.addView(rename);
-            Button dissolve = button("解散", false);
+            actions.addView(rename, actionCell(false));
+
+            Button dissolve = button("解散设备组", false);
             dissolve.setOnClickListener(v -> confirmDialog("解散设备组",
                     "解散「" + groupName + "」？组内成员关系会清空（已经收到的文件不受影响）。", "解散",
                     () -> groupAction("正在解散设备组…", () -> {
                         groupCall("DELETE", "/" + groupId, null);
                         return "已解散「" + groupName + "」";
                     })));
-            actions.addView(dissolve);
+            actions.addView(dissolve, actionCell(true));
         } else {
-            Button leave = button("退出", false);
+            Button leave = button("退出设备组", false);
             leave.setOnClickListener(v -> confirmDialog("退出设备组",
                     "退出「" + groupName + "」？退出后就不能和组里其他设备互传了。", "退出",
                     () -> groupAction("正在退出设备组…", () -> {
                         groupCall("POST", "/" + groupId + "/leave", null);
                         return "已退出「" + groupName + "」";
                     })));
-            actions.addView(leave);
+            actions.addView(leave, actionCell(true));
         }
-        body.addView(withTop(actions, 12));
+        item.addView(actions);
+        return item;
+    }
 
-        ScrollView scroller = new ScrollView(this);
-        scroller.addView(body);
-        activeDialog = new AlertDialog.Builder(this)
-                .setTitle(groupName)
-                .setView(scroller)
-                .setNegativeButton("关闭", null)
-                .show();
+    /** 组操作按钮的格子：等宽（weight=1，绕开主题给按钮的 88dp 最小宽度），最后一个不留右间距。 */
+    private LinearLayout.LayoutParams actionCell(boolean last) {
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        if (!last) {
+            params.rightMargin = dp(8);
+        }
+        return params;
+    }
+
+    /** 一台设备的小卡（与网页端同款）：图标 + 名字 + 活跃/收件箱 + 标签 +（管理员的）「移出」。 */
+    private View memberCard(final String groupId, final boolean owner, final JSONObject member) {
+        final boolean self = member.optBoolean("is_self");
+        final boolean memberIsOwner = "owner".equals(member.optString("role"));
+
+        LinearLayout rowBox = row();
+        rowBox.setPadding(dp(10), dp(10), dp(10), dp(10));
+        rowBox.setBackground(rounded(CARD, 10));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_device);
+        icon.setColorFilter(ACCENT);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        iconParams.rightMargin = dp(10);
+        rowBox.addView(icon, iconParams);
+
+        LinearLayout meta = new LinearLayout(this);
+        meta.setOrientation(LinearLayout.VERTICAL);
+        meta.addView(line(member.optString("name"), FG, 14));
+        meta.addView(withTop(line(memberMeta(member), MUTED, 12), 2));
+        rowBox.addView(meta, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (self) {
+            rowBox.addView(tag("本设备", true));
+        }
+        rowBox.addView(tag(memberIsOwner ? "管理员" : "成员", false));
+
+        if (owner && !self) {
+            final String memberId = member.optString("id");
+            final String memberName = member.optString("name");
+            Button remove = button("移出", false);
+            LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            removeParams.leftMargin = dp(6);
+            remove.setOnClickListener(v -> groupAction("正在移除 " + memberName + "…", () -> {
+                groupCall("DELETE", "/" + groupId + "/members/" + memberId, null);
+                return "已把 " + memberName + " 移出设备组";
+            }));
+            rowBox.addView(remove, removeParams);
+        }
+        return rowBox;
+    }
+
+    /** 设备小卡的说明行：上次活跃（拿得到设备列表时补「收件箱 N 个文件」）。 */
+    private String memberMeta(JSONObject member) {
+        String text = activeText(member.optLong("idle_seconds", -1));
+        int inbox = member.optInt("inbox_count", -1);
+        return inbox >= 0 ? text + " · 收件箱 " + inbox + " 个文件" : text;
+    }
+
+    /** 上次活跃：和网页端同一套说法。 */
+    private static String activeText(long idleSeconds) {
+        if (idleSeconds < 0) {
+            return "活跃时间未知";
+        }
+        if (idleSeconds < 90) {
+            return "刚刚活跃";
+        }
+        long minutes = idleSeconds / 60;
+        if (minutes < 60) {
+            return minutes + " 分钟前活跃";
+        }
+        long hours = minutes / 60;
+        if (hours < 24) {
+            return hours + " 小时前活跃";
+        }
+        return (hours / 24) + " 天前活跃";
+    }
+
+    /** 小标签：本设备 / 管理员 / 成员。 */
+    private TextView tag(String text, boolean accent) {
+        TextView view = line(text, accent ? ACCENT : MUTED, 11);
+        view.setPadding(dp(8), dp(3), dp(8), dp(3));
+        view.setBackground(rounded(accent ? 0x336C8CFF : 0x33FFFFFF, 8));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.leftMargin = dp(6);
+        view.setLayoutParams(params);
+        return view;
     }
 
     /** 带输入框的对话框（建组 / 加入 / 改名共用）。 */
@@ -1644,9 +1735,6 @@ public class MainActivity extends Activity {
                 final String message = task.run();
                 ui.post(() -> {
                     toast(message);
-                    if (activeDialog != null && activeDialog.isShowing()) {
-                        activeDialog.dismiss();                 // 组详情已过期，关掉让用户看新的
-                    }
                     showHome();                                 // 整页重画：登记后设备卡/收件箱立刻出现
                 });
             } catch (Exception e) {
