@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 12;
+  const ASSET_VERSION = 13;
 
   const $ = (id) => document.getElementById(id);
 
@@ -54,7 +54,6 @@
     panelDevices: $("panel-devices"),
     tabDevices: $("tab-devices"),
     inboxBadge: $("inbox-badge"),
-    deviceSetup: $("device-setup"),
     deviceSelf: $("device-self"),
     installCard: $("install-card"),
     installMain: $("install-main"),
@@ -612,7 +611,6 @@
 
   function renderSelf() {
     const has = !!myDevice;
-    els.deviceSetup.classList.toggle("hidden", has);
     els.deviceSelf.classList.toggle("hidden", !has);
     if (has) {
       els.selfName.textContent = myDevice.name;
@@ -1216,8 +1214,8 @@
     const standalone = isStandalone();
     const canPrompt = !standalone && Boolean(installPrompt);
     // 只有真的能一键安装时才显示这段引导：没有按钮就没有可操作的步骤，不留纯文字说明
-    els.installMain.classList.toggle("hidden", !canPrompt);
-    els.installBtn.classList.toggle("hidden", !canPrompt);
+    els.installMain.classList.toggle("hidden", standalone);   // 装过了才收起这段引导
+    els.installBtn.classList.toggle("hidden", !canPrompt);     // 浏览器不给一键安装时只藏按钮
   }
 
   window.addEventListener("beforeinstallprompt", (event) => {

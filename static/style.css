@@ -342,11 +342,6 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 .btn-row .primary { margin-top: 0; flex: 1 1 180px; }
 .btn-row .ghost { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
 
-.device-intro { display: flex; gap: 14px; align-items: flex-start; }
-.device-intro strong { font-size: 15px; }
-.device-intro .hint { margin: 6px 0 0; }
-.device-intro .dz-icon .icon { width: 30px; height: 30px; }
-
 .section-title {
   display: flex;
   align-items: center;

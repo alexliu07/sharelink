@@ -202,8 +202,8 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual(create.disabled, false, "未登记时建组按钮被禁用");
     assert.strictEqual(join.disabled, false, "未登记时加入按钮被禁用");
   });
-  check('未登记时显示登记表单、隐藏「本设备」卡片', () => {
-    assert.ok(visible($("#device-setup")));
+  check("未登记时：没有多余的说明块，只显示设备组入口", () => {
+    assert.ok(!$("#device-setup"), "那个「本设备还没加入设备组」块应该已删掉");
     assert.ok(!visible($("#device-self")));
   });
 
@@ -211,7 +211,6 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(!$("#group-need-device"), "描述性提示应该已删掉");
     assert.ok(visible($("#group-create-row")), "未登记时建组表单被收起");
     assert.ok(visible($("#group-join-row")), "未登记时加入表单被收起");
-    assert.ok(visible($("#device-setup")), "未登记时提示区不见了");
   });
   check("未登记时点「发送至设备」被拦住并切到设备页（投递必须实名）", () => {
     $("#tab-upload").click();
@@ -240,7 +239,6 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     const registerAt = paths.indexOf("POST /api/devices");
     const createAt = paths.findIndex((p) => p.startsWith("POST /api/groups"));
     assert.ok(createAt > registerAt, `顺序不对：${paths.join(" | ")}`);
-    assert.ok(!visible($("#device-setup")), "登记后提示区还在");
     assert.ok(visible($("#device-self")), "登记后本设备卡片没出现");
   });
   check("本设备名称/收件箱渲染 + 打开面板自动标已读", () => {
@@ -537,9 +535,12 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   });
 
   console.log("== PWA：安装引导 / service worker ==");
-  check("没装成应用、浏览器又不给一键安装时：不留纯文字引导，「下载APK」还在", () => {
+  check("没装成应用、浏览器又不给一键安装时：图标与标题还在，只是没有安装按钮", () => {
     assert.ok(visible($("#install-card")), "安装卡片没出现");
-    assert.ok(!visible($("#install-main")), "没有按钮就该整段收起（不留说明文字）");
+    assert.ok(visible($("#install-main")), "图标与标题不该收起");
+    assert.ok($("#install-main").textContent.includes("装成应用"), $("#install-main").textContent);
+    assert.ok($("#install-main").querySelector("use"), "图标没了");
+    assert.ok(!visible($("#install-btn")), "没有 beforeinstallprompt 时不该显示按钮");
     assert.ok(visible($("#apk-download-btn")), "「下载APK」被一起藏了");
   });
   let prompted = false;
@@ -691,7 +692,6 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
   await new Promise((r) => setTimeout(r, 80));
   check("带令牌的请求收到「设备不存在」→ 自动清除本机登记并提示重新建组/加入", () => {
     assert.strictEqual(window.localStorage.getItem("sharelink.device"), null, "本机登记没被清掉");
-    assert.ok(visible($("#device-setup")), "没有回到「还没加入设备组」的样子");
     assert.ok(!visible($("#device-self")), "设备卡还显示着一台服务端没有的设备");
     assert.strictEqual($("#group-list").textContent.includes("设备组读取失败"), false, "还在报读取失败");
     assert.ok($("#notice").textContent.includes("清除本机登记"), $("#notice").textContent);
