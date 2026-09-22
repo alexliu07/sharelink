@@ -590,57 +590,24 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual(call.options.scope, "./");
   });
 
-  console.log("== 设备令牌备份 / 恢复 ==");
-  const blobUrls = [];
-  const downloaded = [];
-  let exportedText = "";
-  window.URL.createObjectURL = (blob) => { blobUrls.push(blob); blob.text().then((text) => { exportedText = text; }); return "blob:stub"; };
-  window.URL.revokeObjectURL = () => {};
-  window.HTMLAnchorElement.prototype.click = function () { downloaded.push({ href: this.href, download: this.download }); };
-
-  $("#device-export-btn").click();
-  await new Promise((r) => setTimeout(r, 20));
-  check("导出令牌：文件名带设备名与 id，内容是可恢复的 JSON", () => {
-    const file = downloaded.at(-1);
-    assert.ok(file, "没有触发下载");
-    assert.ok(file.download.startsWith("sharelink-") && file.download.endsWith(".json"), file.download);
-    assert.ok(file.download.includes("dev_AAAABBBB"), file.download);
-    const payload = JSON.parse(exportedText);
-    assert.strictEqual(payload.id, "dev_AAAABBBB");
-    assert.strictEqual(payload.token, "tok_secret_value");
-  });
-
-  const importWith = async (payload) => {
-    const upload = new window.File([JSON.stringify(payload)], "device.json", { type: "application/json" });
-    Object.defineProperty($("#device-import-file"), "files", { value: [upload], configurable: true });
-    $("#device-import-file").dispatchEvent(new window.Event("change"));
-    await new Promise((r) => setTimeout(r, 30));
+  console.log("== 设备令牌备份 / 恢复（页面上不显示令牌明文）==");
+  // 导出失败时的兜底靠 window.prompt 给一段可长按复制的文本，jsdom 自带的 prompt 是 not implemented，先换成可控的
+  const prompts = [];
+  let promptAnswer = null;
+  window.prompt = (message, defaultValue) => {
+    prompts.push({ message, defaultValue });
+    return promptAnswer;
   };
 
-  await importWith({ id: "dev_ZZZZ9999", token: "token-wrong" });
-  check("导入错误令牌：拒绝且不覆盖当前设备", () => {
-    assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
-    assert.strictEqual(JSON.parse(window.localStorage.getItem("sharelink.device")).id, "dev_AAAABBBB");
+  check("令牌内容不再显示在页面上：只留导出/导入两颗按钮", () => {
+    assert.ok(!$("#device-token-text"), "页面上还摆着令牌文本框");
+    assert.ok(!$("#device-import-text"), "页面上还有粘贴令牌的文本框");
+    const labels = [...doc.querySelectorAll(".token-box button")].map((b) => b.textContent.trim());
+    assert.deepStrictEqual(labels, ["导出令牌", "导入令牌"], `按钮是 ${labels.join(" / ")}`);
+    assert.ok(!doc.querySelector(".token-box").textContent.includes("tok_secret_value"), "令牌明文出现在页面文字里");
   });
-
-  await importWith({ id: "dev_ZZZZ9999", token: "tok_restored" });
-  check("导入正确令牌：先校验收件箱再落盘，并更新界面", () => {
-    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
-    assert.strictEqual(saved.id, "dev_ZZZZ9999");
-    assert.strictEqual(saved.token, "tok_restored");
-    assert.strictEqual($("#self-name").textContent, "旧手机");
-    assert.ok($("#notice").textContent.includes("已恢复设备"), $("#notice").textContent);
-    assert.strictEqual($("#inbox-badge").textContent, "1");
-  });
-  const junk = new window.File(["这不是 JSON"], "x.json", { type: "application/json" });
-  Object.defineProperty($("#device-import-file"), "files", { value: [junk], configurable: true });
-  $("#device-import-file").dispatchEvent(new window.Event("change"));
-  await new Promise((r) => setTimeout(r, 30));
-  check("导入垃圾文件：报错而不是静默失败", () => {
-    assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
-  });
-
-  console.log("== 令牌：复制 / 粘贴 / 读剪贴板（不依赖文件那条路） ==");
+  await new Promise((r) => setTimeout(r, 20));
+  console.log("== 令牌：只有导出/导入两颗按钮（读剪贴板那条路） ==");
   const clipboard = { written: "", read: "" };
   Object.defineProperty(window.navigator, "clipboard", {
     value: {
@@ -650,40 +617,44 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     configurable: true,
   });
 
-  // 先把设备换成"原设备"，验证复制出来的就是它的令牌
-  $("#device-import-text").value = JSON.stringify({ id: "dev_AAAABBBB", token: "tok_secret_value" });
-  $("#device-import-apply-btn").click();
-  await new Promise((r) => setTimeout(r, 40));
-  check("粘贴导入：校验收件箱后落盘并刷新界面", () => {
-    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
-    assert.strictEqual(saved.id, "dev_AAAABBBB");
-    assert.strictEqual(saved.token, "tok_secret_value");
-    assert.ok($("#notice").textContent.includes("已恢复设备"), $("#notice").textContent);
-    assert.strictEqual($("#device-import-text").value, "", "导入后应清空粘贴框");
-  });
+  const importFromClipboard = async (payload) => {
+    clipboard.read = typeof payload === "string" ? payload : JSON.stringify(payload);
+    $("#device-import-apply-btn").click();
+    await new Promise((r) => setTimeout(r, 40));
+  };
 
-  $("#device-import-text").value = JSON.stringify({ id: "dev_ZZZZ9999", token: "token-wrong" });
-  $("#device-import-apply-btn").click();
-  await new Promise((r) => setTimeout(r, 40));
-  check("粘贴导入错误令牌：拒绝且不覆盖当前设备", () => {
+  await importFromClipboard({ id: "dev_ZZZZ9999", token: "token-wrong" });
+  check("导入错误令牌：拒绝且不覆盖当前设备", () => {
     assert.ok($("#notice").textContent.includes("导入失败"), $("#notice").textContent);
     assert.strictEqual(JSON.parse(window.localStorage.getItem("sharelink.device")).id, "dev_AAAABBBB");
   });
 
-  $("#device-import-text").value = "随便写点非 JSON";
-  $("#device-import-apply-btn").click();
-  await new Promise((r) => setTimeout(r, 20));
-  check("粘贴非 JSON：明确报错", () => {
+  await importFromClipboard({ id: "dev_ZZZZ9999", token: "tok_restored" });
+  check("导入正确令牌：先校验收件箱再落盘，并更新界面", () => {
+    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
+    assert.strictEqual(saved.id, "dev_ZZZZ9999");
+    assert.strictEqual(saved.token, "tok_restored");
+    assert.strictEqual($("#self-name").textContent, "旧手机");
+    assert.ok($("#notice").textContent.includes("已恢复设备"), $("#notice").textContent);
+    assert.strictEqual($("#inbox-badge").textContent, "1");
+  });
+
+  await importFromClipboard("随便写点非 JSON");
+  check("导入非 JSON：明确报错", () => {
     assert.ok($("#notice").textContent.includes("不是合法的 JSON"), $("#notice").textContent);
+    assert.strictEqual(JSON.parse(window.localStorage.getItem("sharelink.device")).id, "dev_ZZZZ9999",
+      "导入失败不该动当前设备");
   });
 
-  check("令牌框里直接就摆着可复制的 JSON（不用先导出文件）", () => {
-    const payload = JSON.parse($("#device-token-text").value);
-    assert.strictEqual(payload.sharelink_device, 1);
-    assert.strictEqual(payload.id, "dev_AAAABBBB");
-    assert.strictEqual(payload.token, "tok_secret_value");
+  clipboard.read = "";                       // 剪贴板空：给可操作的提示（不静默失败）
+  $("#device-import-apply-btn").click();
+  await new Promise((r) => setTimeout(r, 40));
+  check("剪贴板为空：提示先去另一台设备点「导出令牌」", () => {
+    assert.ok($("#notice").textContent.includes("导出令牌"), $("#notice").textContent);
   });
 
+  // 导出的就是当前设备的令牌（且只写剪贴板，不在页面上留明文）
+  await importFromClipboard({ id: "dev_AAAABBBB", token: "tok_secret_value" });
   $("#device-copy-btn").click();
   await new Promise((r) => setTimeout(r, 20));
   check("复制令牌：写进剪贴板的就是可恢复的 JSON", () => {
@@ -693,20 +664,28 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok($("#notice").textContent.includes("已复制到剪贴板"), $("#notice").textContent);
   });
 
-  clipboard.read = JSON.stringify({ id: "dev_ZZZZ9999", token: "tok_restored" });
-  $("#device-import-clip-btn").click();
-  await new Promise((r) => setTimeout(r, 40));
-  check("读取剪贴板导入：认领同一台设备", () => {
-    const saved = JSON.parse(window.localStorage.getItem("sharelink.device"));
-    assert.strictEqual(saved.id, "dev_ZZZZ9999");
-    assert.strictEqual(saved.name, "旧手机");
+  // 导出兜底：浏览器不给写剪贴板时，弹一段可长按复制的文本（不静默失败）
+  const writeText = window.navigator.clipboard.writeText;
+  Object.defineProperty(window.navigator, "clipboard", {
+    value: { writeText: async () => { throw new Error("no clipboard"); }, readText: async () => clipboard.read },
+    configurable: true,
+  });
+  $("#device-copy-btn").click();
+  await new Promise((r) => setTimeout(r, 20));
+  check("写剪贴板失败时：弹出可手动复制的令牌文本", () => {
+    const last = prompts.at(-1);
+    assert.ok(last, "没有弹框");
+    assert.strictEqual(JSON.parse(last.defaultValue).token, "tok_secret_value");
+  });
+  Object.defineProperty(window.navigator, "clipboard", {
+    value: { writeText, readText: async () => clipboard.read },
+    configurable: true,
   });
 
-  clipboard.read = "   ";
-  $("#device-import-clip-btn").click();
-  await new Promise((r) => setTimeout(r, 20));
-  check("剪贴板为空：给出可操作的提示", () => {
-    assert.ok($("#notice").textContent.includes("剪贴板"), $("#notice").textContent);
+  // 剪贴板里是空白：同样给可操作的提示，不静默失败
+  await importFromClipboard("   ");
+  check("剪贴板只有空白：提示先去另一台设备点「导出令牌」", () => {
+    assert.ok($("#notice").textContent.includes("导出令牌"), $("#notice").textContent);
   });
 
   console.log("== 服务端已经删掉这台设备（本机缓存过期）==");

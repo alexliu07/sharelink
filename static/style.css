@@ -561,23 +561,6 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 .token-box .section-title { margin-bottom: 4px; }
 .token-box .hint { display: block; margin: 6px 0; }
-.token-box label.hint { margin-top: 12px; }
-
-.token-text {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: rgba(11, 16, 32, .72);
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  resize: vertical;
-  word-break: break-all;
-}
 .token-text:focus { outline: none; border-color: var(--accent); }
 .token-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .token-actions button { display: inline-flex; align-items: center; gap: 6px; }

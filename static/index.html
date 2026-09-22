@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -275,29 +275,18 @@
           <button class="danger" id="device-leave-btn">退出列表</button>
         </div>
 
-        <!-- 令牌备份/恢复：换手机、或 iOS 清理站点存储后用来找回设备 -->
+        <!-- 令牌备份/恢复：换手机、或 iOS 清理站点存储后用来找回设备。
+             令牌内容不显示在页面上（避免误截图/误发），只留导出与导入两颗按钮。 -->
         <div class="token-box">
           <h3 class="section-title">
             <svg class="icon" aria-hidden="true"><use href="#icon-box"></use></svg>设备令牌
             <span class="muted">换手机 / 清了浏览器数据时用它找回</span>
           </h3>
-          <p class="hint">下面这段 JSON 就是本设备的凭证（别发给别人）。复制出去，在别的浏览器或手机 App 里粘贴导入，
-            就能认领同一台设备，连收件箱一起。</p>
-          <textarea class="token-text" id="device-token-text" rows="4" readonly spellcheck="false"
-                    aria-label="本设备令牌 JSON"></textarea>
+          <p class="hint">令牌就是本设备的凭证，别发给别人。「导出令牌」把它复制到剪贴板，
+            在另一台设备或手机 App 上点「导入令牌」粘贴认领，就能连设备组和收件箱一起拿回来。</p>
           <div class="token-actions">
-            <button class="primary inline" id="device-copy-btn"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>复制令牌</button>
-            <button class="ghost" id="device-export-btn"><svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg>存成文件</button>
-          </div>
-          <label class="hint" for="device-import-text">导入：把令牌 JSON 粘贴到这里，或直接读剪贴板</label>
-          <textarea class="token-text" id="device-import-text" rows="3" spellcheck="false"
-                    aria-label="粘贴令牌 JSON"
-                    placeholder='{"sharelink_device":1,"id":"dev_XXXXXXXX","token":"..."}'></textarea>
-          <div class="token-actions">
-            <button class="primary inline" id="device-import-apply-btn"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>导入令牌</button>
-            <button class="ghost" id="device-import-clip-btn">读取剪贴板</button>
-            <button class="ghost" id="device-import-btn"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg>选文件</button>
-            <input type="file" id="device-import-file" accept="*/*" hidden>
+            <button class="primary inline" id="device-copy-btn"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>导出令牌</button>
+            <button class="ghost" id="device-import-apply-btn"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>导入令牌</button>
           </div>
         </div>
 
@@ -376,6 +365,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
