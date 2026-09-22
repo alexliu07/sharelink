@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 16;
+  const ASSET_VERSION = 17;
 
   const $ = (id) => document.getElementById(id);
 
@@ -611,7 +611,7 @@
     els.deviceSelf.classList.toggle("hidden", !has);
     if (has) {
       els.selfName.textContent = myDevice.name;
-      els.selfMeta.textContent = `设备 id ${myDevice.id}`;
+      els.selfMeta.textContent = "";                                            // 不再显示设备 id
       // 令牌不再显示在页面上：要用就点「导出令牌」
       loadGroups();                                        // 登记/恢复后立刻显示设备组（含成员）
     } else {
@@ -703,9 +703,7 @@
               <span class="meta">
                 <span class="device-line">
                   <strong>${escapeHtml(member.name)}</strong>
-                  ${member.is_self
-                    ? '<span class="tag self">本设备</span>'
-                    : `<span class="tag">${escapeHtml(member.id)}</span>`}
+                  ${member.is_self ? '<span class="tag self">本设备</span>' : ""}
                   <span class="tag">${member.role === "owner" ? "管理员" : "成员"}</span>
                 </span>
                 <span class="muted">${lastSeenText(member.idle_seconds)}${info ? ` · 收件箱 ${info.inbox_count} 个文件` : ""}</span>
@@ -888,7 +886,7 @@
     try {
       const data = await apiJson(`/api/devices/${myDevice.id}/inbox`, { headers: deviceHeaders() });
       renderInbox(data);
-      els.selfMeta.textContent = `设备 id ${myDevice.id} · 收件箱 ${data.count} 个文件`;
+      els.selfMeta.textContent = `收件箱 ${data.count} 个文件`;
       setBadge(data.unread);
       if (markSeen && data.unread) {
         await apiJson(`/api/devices/${myDevice.id}/inbox/seen`, { method: "POST", headers: deviceHeaders() });

@@ -318,6 +318,9 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(btn.querySelector("svg use"), "没有图标");
     assert.ok(btn.closest("#panel-devices"), "不在设备面板里");
   });
+  check("「本设备」卡片也不再显示设备 id", () => {
+    assert.ok(!$("#device-self").textContent.includes("设备 id"), $("#device-self").textContent);
+  });
   check("合并后只有一栏：组卡片里按组列设备（本设备 + 同组设备，带收件箱数）", () => {
     assert.ok(!$("#device-list"), "旧的独立设备列表应该删掉了");
     assert.ok(!$("#group-count"), "旧的设备组计数应该并进「同组设备」栏");
@@ -327,13 +330,14 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     for (const row of rows) {
       assert.ok(row.querySelector(".picked-icon use"), "设备行没有图标");
       assert.ok(row.querySelector(".meta strong"), "设备行没有名字");
-      assert.ok(row.querySelectorAll(".tag").length >= 2, `标签太少：${row.textContent}`);
+      assert.ok(row.querySelectorAll(".tag").length >= 1, `标签太少：${row.textContent}`);
     }
     assert.ok(rows[0].textContent.includes("我的笔记本"), rows[0].textContent);
     assert.ok(rows[0].querySelector(".tag.self").textContent.includes("本设备"), "本设备没标出来");
     assert.ok(rows[1].textContent.includes("室友"), rows[1].textContent);
     assert.ok(rows[1].textContent.includes("收件箱"), `没带收件箱数：${rows[1].textContent}`);
-    assert.ok(rows[1].textContent.includes("dev_CCCCDDDD"), `没带设备 id：${rows[1].textContent}`);
+    assert.ok(!$("#group-list").textContent.includes("dev_"), `设备 id 不该再显示：${rows[1].textContent}`);
+    assert.ok(!rows[1].querySelectorAll(".tag").length || rows[1].querySelector(".tag").textContent !== "dev_CCCCDDDD");
     assert.ok(rows[0].textContent.includes("管理员") && rows[1].textContent.includes("成员"),
       `角色标签不对：${rows[0].textContent} / ${rows[1].textContent}`);
     // 设备信息仍然要带令牌拉（发送面板也用它）

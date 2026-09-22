@@ -12,7 +12,7 @@
  * 另外 index.html 里引用 app.js / style.css 都带 `?v=N`（见 app.js 的 ASSET_VERSION）：
  * 前端一改就 +1，已经进过别人浏览器缓存的旧副本会被新 URL 直接绕开。
  */
-const VERSION = "sharelink-v16";
+const VERSION = "sharelink-v17";
 
 // 预缓存清单：相对 URL 以 sw.js 自身位置为基准（部署在 /share/ 下也能work）
 const SHELL = [
