@@ -323,11 +323,19 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(!$("#group-count"), "旧的设备组计数应该并进「同组设备」栏");
     const rows = [...doc.querySelectorAll("#group-list .group-card .group-members li")];
     assert.strictEqual(rows.length, 2, `实际 ${rows.length} 行`);
-    assert.ok(rows[0].textContent.includes("我的笔记本（本设备）"), rows[0].textContent);
+    // 每台设备都是原来「同组设备」那种小卡：图标 + 名字 + 活跃/收件箱 + 标签
+    for (const row of rows) {
+      assert.ok(row.querySelector(".picked-icon use"), "设备行没有图标");
+      assert.ok(row.querySelector(".meta strong"), "设备行没有名字");
+      assert.ok(row.querySelectorAll(".tag").length >= 2, `标签太少：${row.textContent}`);
+    }
+    assert.ok(rows[0].textContent.includes("我的笔记本"), rows[0].textContent);
+    assert.ok(rows[0].querySelector(".tag.self").textContent.includes("本设备"), "本设备没标出来");
     assert.ok(rows[1].textContent.includes("室友"), rows[1].textContent);
     assert.ok(rows[1].textContent.includes("收件箱"), `没带收件箱数：${rows[1].textContent}`);
-    const heads = [...doc.querySelectorAll("#group-list .group-card")].map((c) => c.textContent);
-    assert.ok(heads.every((h) => !h.includes("dev_CCCCDDDD")), "组卡里不该再重复设备 id");
+    assert.ok(rows[1].textContent.includes("dev_CCCCDDDD"), `没带设备 id：${rows[1].textContent}`);
+    assert.ok(rows[0].textContent.includes("管理员") && rows[1].textContent.includes("成员"),
+      `角色标签不对：${rows[0].textContent} / ${rows[1].textContent}`);
     // 设备信息仍然要带令牌拉（发送面板也用它）
     const last = calls.map((c) => c.url).filter((u) => u.startsWith("/api/devices?")).pop();
     assert.ok(last.includes("device_id=dev_AAAABBBB"), last);

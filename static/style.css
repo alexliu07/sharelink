@@ -302,9 +302,23 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   padding: 2px 7px;
   word-break: break-all;
 }
-.group-members { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.group-members li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.group-members .grow { flex: 1 1 auto; min-width: 0; }
+.group-members { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.group-members li {                      /* 每台设备一张小卡（与原来「同组设备」列表同款） */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--card-border);
+}
+.group-members .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.group-members .meta strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .group-members .icon-btn { flex: 0 0 auto; }
 .group-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .group-actions .ghost, .group-actions .danger { margin-top: 0; }
