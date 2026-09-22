@@ -1397,11 +1397,6 @@ public class MainActivity extends Activity {
         final boolean registered = device != null;
         LinearLayout card = card();
         card.addView(line("设备组", FG, 16));
-        if (!registered) {                     // 未登记时给一句说明；已在组里就不再解释用法
-            card.addView(withTop(line("点下面的按钮就会自动把这台手机加进设备列表：创建时你直接进组并成为管理员，"
-                    + "加入时用对方给的组 id。名字默认用手机型号，之后在设备页可改。", MUTED, 13), 8));
-        }
-
         LinearLayout buttons = row();
         Button create = button("创建设备组", true);
         create.setOnClickListener(v -> promptDialog("创建设备组", "组名，例如：家里的设备", "", "创建", name -> {
@@ -1505,7 +1500,7 @@ public class MainActivity extends Activity {
         box.removeAllViews();
         status.setText(groups.isEmpty()
                 ? "还没有加入任何设备组"
-                : "共 " + groups.size() + " 个设备组（点「管理」看成员与操作）");
+                : "共 " + groups.size() + " 个设备组");
         for (JSONObject group : groups) {
             final JSONObject target = group;
             LinearLayout item = column();
@@ -1513,8 +1508,7 @@ public class MainActivity extends Activity {
             item.setBackground(rounded(CARD_SOFT, 12));
             item.addView(line(group.optString("name") + (group.optBoolean("is_owner") ? "（我是管理员）" : ""), FG, 14));
             item.addView(withTop(line(group.optString("id"), MUTED, 12), 4));
-            item.addView(withTop(line(group.optInt("member_count") + " 台设备 · 管理里可复制组 id"
-                    + (group.optBoolean("is_owner") ? "、移除成员、解散" : "、退出"), MUTED, 12), 4));
+            item.addView(withTop(line(group.optInt("member_count") + " 台设备", MUTED, 12), 4));
             Button manage = button("管理", false);
             manage.setOnClickListener(v -> showGroupDialog(target));
             item.addView(withTop(manage, 8));
