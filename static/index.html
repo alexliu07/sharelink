@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -278,10 +278,10 @@
         <p class="hint hidden" id="inbox-empty">还没有人发文件给你。</p>
       </div>
 
-      <!-- 同组设备：只有同组设备之间才能互传，组 id 就是邀请凭证。按组列设备，操作按钮都在这一个页面上 -->
+      <!-- 设备组：只有同组设备之间才能互传，组 id 就是邀请凭证。按组列设备，操作按钮都在这一个页面上 -->
       <div class="section-head">
-        <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg>同组设备 <span class="muted" id="device-count"></span></h3>
-        <button class="ghost" id="group-refresh" title="刷新" aria-label="刷新同组设备与设备组"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
+        <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-group"></use></svg>设备组 <span class="muted" id="device-count"></span></h3>
+        <button class="ghost" id="group-refresh" title="刷新" aria-label="刷新设备组"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
       </div>
 
       <div class="group-form" id="group-create-row">
@@ -334,6 +334,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

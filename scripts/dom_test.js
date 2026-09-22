@@ -318,6 +318,13 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(btn.querySelector("svg use"), "没有图标");
     assert.ok(btn.closest("#panel-devices"), "不在设备面板里");
   });
+  check("设备栏标题是「设备组」+ 组图标（不是「同组设备」+ 设备图标）", () => {
+    const head = $("#device-count").closest(".section-head");
+    const title = head.querySelector(".section-title");
+    assert.ok(title.textContent.includes("设备组"), title.textContent);
+    assert.ok(!title.textContent.includes("同组设备"), `标题还没改：${title.textContent}`);
+    assert.strictEqual(title.querySelector("use").getAttribute("href"), "#icon-group");
+  });
   check("「本设备」卡片也不再显示设备 id", () => {
     assert.ok(!$("#device-self").textContent.includes("设备 id"), $("#device-self").textContent);
   });

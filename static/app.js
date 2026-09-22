@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 17;
+  const ASSET_VERSION = 18;
 
   const $ = (id) => document.getElementById(id);
 
@@ -646,7 +646,7 @@
       return deviceCache;
     } catch (err) {
       if (err.deviceStale) return [];              // 本机登记刚被清掉，界面由 renderSelf 重画，别再报错
-      showNotice(`同组设备读取失败：${err.message}`);
+      showNotice(`设备组读取失败：${err.message}`);
       return [];
     }
   }
