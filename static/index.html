@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -106,6 +106,22 @@
   </header>
 
   <main class="card">
+    <!-- 装成应用（PWA）引导：浏览器给一键安装时才有这段；没按钮就整段收起，只留「下载APK」 -->
+    <div class="install-card hidden" id="install-card">
+      <div class="install-main" id="install-main">
+        <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg></span>
+        <div class="install-body">
+          <strong>把 ShareLink 装成应用</strong>
+        </div>
+        <button class="primary inline hidden" id="install-btn"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg>装到本设备</button>
+      </div>
+      <!-- 安卓原生小工具：已经装成 PWA（上面那段收起来）时这个按钮也要一直在 -->
+      <div class="install-apk">
+        <a class="ghost inline" id="apk-download-btn" rel="noopener"
+           href="https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLink.apk"><svg class="icon" aria-hidden="true"><use href="#icon-apk"></use></svg>下载APK</a>
+      </div>
+    </div>
+
     <nav class="tabs" role="tablist">
       <button class="tab active" id="tab-upload" role="tab" aria-selected="true" data-panel="panel-upload"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>上传文件</button>
       <button class="tab" id="tab-fetch" role="tab" aria-selected="false" data-panel="panel-fetch"><svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg>用分享码下载</button>
@@ -231,22 +247,6 @@
 
     <!-- ============================ 设备 ============================ -->
     <section class="panel" id="panel-devices">
-      <!-- 装成应用（PWA）引导：浏览器给一键安装时才有这段；没按钮就整段收起，只留「下载APK」 -->
-      <div class="install-card hidden" id="install-card">
-        <div class="install-main" id="install-main">
-          <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg></span>
-          <div class="install-body">
-            <strong>把 ShareLink 装成应用</strong>
-          </div>
-          <button class="primary inline hidden" id="install-btn"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg>装到本设备</button>
-        </div>
-        <!-- 安卓原生小工具：已经装成 PWA（上面那段收起来）时这个按钮也要一直在 -->
-        <div class="install-apk">
-          <a class="ghost inline" id="apk-download-btn" rel="noopener"
-             href="https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLink.apk"><svg class="icon" aria-hidden="true"><use href="#icon-apk"></use></svg>下载APK</a>
-        </div>
-      </div>
-
       <div id="device-self" class="hidden">
         <div class="picked">
           <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg></span>
@@ -334,6 +334,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

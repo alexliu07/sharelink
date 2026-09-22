@@ -318,6 +318,14 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(btn.querySelector("svg use"), "没有图标");
     assert.ok(btn.closest("#panel-devices"), "不在设备面板里");
   });
+  check("安装卡在三个标签按钮上方，且已不在设备面板里（切标签也看得到）", () => {
+    const card = $("#install-card"), tabs = doc.querySelector(".tabs");
+    assert.ok(card && tabs, "找不到安装卡或标签栏");
+    assert.ok(card.compareDocumentPosition(tabs) & 4, "安装卡不在标签栏前面");
+    assert.ok(!card.closest("#panel-devices"), "安装卡还在设备面板里");
+    assert.strictEqual(tabs.querySelectorAll(".tab").length, 3, "标签不是三个");
+    assert.ok(visible(card), "未装成 PWA 时安装卡应该显示（切到任意标签都在）");
+  });
   check("设备栏标题是「设备组」+ 组图标（不是「同组设备」+ 设备图标）", () => {
     const head = $("#device-count").closest(".section-head");
     const title = head.querySelector(".section-title");
