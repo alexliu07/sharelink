@@ -280,7 +280,6 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
 }
 
 /* --------- 设备组（建组 / 凭组 id 加入 / 成员管理） --------- */
-.group-block { margin-top: 24px; }
 .group-form { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .group-form .input { flex: 1 1 200px; min-width: 0; }
 .group-form .primary { flex: 0 0 auto; }
@@ -425,8 +424,8 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   #inbox-refresh[aria-busy="true"] .icon { animation: none; }
 }
 
-.device-list, .inbox, .device-pick { list-style: none; margin: 0; padding: 0; }
-.device-list li, .inbox-item, .device-pick li {
+.inbox, .device-pick { list-style: none; margin: 0; padding: 0; }
+.inbox-item, .device-pick li {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -435,9 +434,9 @@ h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
   background: rgba(255, 255, 255, .04);
   border: 1px solid var(--card-border);
 }
-.device-list li + li, .inbox-item + .inbox-item, .device-pick li + li { margin-top: 8px; }
-.device-list .meta, .inbox-item .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.device-list .meta strong, .inbox-item strong {
+.inbox-item + .inbox-item, .device-pick li + li { margin-top: 8px; }
+.inbox-item .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inbox-item strong {
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;

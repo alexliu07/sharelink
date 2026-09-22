@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 13;
+  const ASSET_VERSION = 14;
 
   const $ = (id) => document.getElementById(id);
 
@@ -79,10 +79,7 @@
     copyTextBtn: $("copy-text-btn"),
     rKindRow: $("r-kind-row"),
     rKind: $("r-kind"),
-    deviceList: $("device-list"),
     deviceCount: $("device-count"),
-    deviceNoGroup: $("device-no-group"),
-    groupCount: $("group-count"),
     groupList: $("group-list"),
     groupEmpty: $("group-empty"),
     groupCreateRow: $("group-create-row"),
@@ -645,33 +642,13 @@
       const data = await apiJson(url, myDevice ? { headers: deviceHeaders() } : {});
       deviceCache = data.devices || [];
       deviceScope = data.scope || "";
-      renderDeviceList();
+      renderGroups();          // 合并后：设备信息用来补「同组设备」里的收件箱数，列表按组渲染
       return deviceCache;
     } catch (err) {
       if (err.deviceStale) return [];              // 本机登记刚被清掉，界面由 renderSelf 重画，别再报错
-      els.deviceList.innerHTML = `<li class="muted">设备列表读取失败：${escapeHtml(err.message)}</li>`;
+      showNotice(`同组设备读取失败：${err.message}`);
       return [];
     }
-  }
-
-  function renderDeviceList() {
-    const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
-    els.deviceCount.textContent = deviceCache.length ? `共 ${deviceCache.length} 台` : "";
-    // 已登记但一个组都没有：说明清楚为什么列表里只有自己
-    els.deviceNoGroup.classList.toggle("hidden", !myDevice || others.length > 0);
-    els.deviceList.innerHTML = deviceCache.map((device) => {
-      const mine = myDevice && device.id === myDevice.id;
-      const groups = device.shared_groups || [];
-      const tags = groups.map((group) => `<span class="tag">${escapeHtml(group.name)}</span>`).join("");
-      return `<li>
-        <span class="picked-icon">${icon("icon-devices")}</span>
-        <span class="meta">
-          <strong>${escapeHtml(device.name)}</strong>
-          <span class="muted">${lastSeenText(device.idle_seconds)} · 收件箱 ${device.inbox_count} 个文件</span>
-        </span>
-        ${mine ? '<span class="tag self">本设备</span>' : `${tags}<span class="tag">${escapeHtml(device.id)}</span>`}
-      </li>`;
-    }).join("");
   }
 
   /* ---------- 设备组 ---------- */
@@ -708,7 +685,10 @@
   }
 
   function renderGroups() {
-    els.groupCount.textContent = groupCache.length ? `共 ${groupCache.length} 个` : "";
+    const byId = new Map(deviceCache.map((device) => [device.id, device]));
+    const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
+    els.deviceCount.textContent = deviceCache.length
+      ? `共 ${others.length} 台其他设备 · ${groupCache.length} 个组` : "";
     els.groupEmpty.classList.toggle("hidden", groupCache.length > 0);
 
     els.groupList.innerHTML = groupCache.map((group) => {
@@ -718,7 +698,8 @@
         ? members.map((member) => `
             <li>
               <span class="grow">${escapeHtml(member.name)}${member.is_self ? "（本设备）" : ""}
-                <span class="muted">${member.role === "owner" ? "管理员" : "成员"} · ${lastSeenText(member.idle_seconds)}</span></span>
+                <span class="muted">${member.role === "owner" ? "管理员" : "成员"} · ${lastSeenText(member.idle_seconds)}${
+                  byId.has(member.id) ? ` · 收件箱 ${byId.get(member.id).inbox_count} 个` : ""}</span></span>
               ${owner && !member.is_self
                 ? `<button class="icon-btn" data-act="remove-member" data-group="${escapeHtml(group.id)}"
                            data-member="${escapeHtml(member.id)}" title="移出设备组"

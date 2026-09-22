@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -278,28 +278,23 @@
         <p class="hint hidden" id="inbox-empty">还没有人发文件给你。</p>
       </div>
 
-      <!-- 设备组：只有同组设备之间才能互传；组 id 就是邀请凭证 -->
-      <section class="group-block">
-        <div class="section-head">
-          <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-group"></use></svg>设备组 <span class="muted" id="group-count"></span></h3>
-          <button class="ghost" id="group-refresh" title="刷新设备组" aria-label="刷新设备组"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
-        </div>
-        <div class="group-form" id="group-create-row">
-          <input type="text" id="group-name-input" class="input" maxlength="40" placeholder="新组名，例如：家里的设备">
-          <button class="primary inline" id="group-create-btn"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>创建设备组</button>
-        </div>
-        <div class="group-form" id="group-join-row">
-          <input type="text" id="group-join-input" class="input" maxlength="24" spellcheck="false"
-                 placeholder="粘贴组 id，例如 grp_7KQ2M4XZ9B3D">
-          <button class="primary inline" id="group-join-btn"><svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>加入设备组</button>
-        </div>
-        <ul class="group-list" id="group-list"></ul>
-        <p class="hint hidden" id="group-empty">还没有加入任何设备组。</p>
-      </section>
+      <!-- 同组设备：只有同组设备之间才能互传，组 id 就是邀请凭证。按组列设备，操作按钮都在这一个页面上 -->
+      <div class="section-head">
+        <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg>同组设备 <span class="muted" id="device-count"></span></h3>
+        <button class="ghost" id="group-refresh" title="刷新" aria-label="刷新同组设备与设备组"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
+      </div>
 
-      <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-devices"></use></svg>同组设备 <span class="muted" id="device-count"></span></h3>
-      <ul class="device-list" id="device-list"></ul>
-      <p class="hint hidden" id="device-no-group">你还不在任何设备组里：上面创建或加入一个组之后，这里才会显示可以互传的设备。</p>
+      <div class="group-form" id="group-create-row">
+        <input type="text" id="group-name-input" class="input" maxlength="40" placeholder="新组名，例如：家里的设备">
+        <button class="primary inline" id="group-create-btn"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>创建设备组</button>
+      </div>
+      <div class="group-form" id="group-join-row">
+        <input type="text" id="group-join-input" class="input" maxlength="24" spellcheck="false"
+               placeholder="粘贴组 id，例如 grp_7KQ2M4XZ9B3D">
+        <button class="primary inline" id="group-join-btn"><svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>加入设备组</button>
+      </div>
+      <ul class="group-list" id="group-list"></ul>
+      <p class="hint hidden" id="group-empty">还没有加入任何设备组。</p>
     </section>
 
     <p class="notice hidden" id="notice"></p>
@@ -339,6 +334,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

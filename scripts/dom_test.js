@@ -51,7 +51,7 @@ const GROUPS = { count: 1, groups: [{
   owner_name: "我的笔记本", member_count: 2, my_role: "owner", is_owner: true }] };
 const GROUP_DETAIL = { group: GROUPS.groups[0], members: [
   { id: "dev_AAAABBBB", name: "我的笔记本", role: "owner", joined_at: nowIso, last_seen_at: nowIso, idle_seconds: 12, is_self: true },
-  { id: "dev_CCCCDDDD", name: "室友的 iPad", role: "member", joined_at: nowIso, last_seen_at: nowIso, idle_seconds: 3600, is_self: false },
+  { id: "dev_CCCCDDDD", name: DEVICES[1].name, role: "member", joined_at: nowIso, last_seen_at: nowIso, idle_seconds: 3600, is_self: false },
 ] };
 // 设备列表：服务端只返回"自己 + 同组设备"，并带共同组标签
 const SCOPED_DEVICES = { count: 2, self_id: "dev_AAAABBBB", scope: "groups", devices: [
@@ -255,7 +255,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(link.getAttribute("href").endsWith("/api/download/AB3D7K9M"), link.getAttribute("href"));
   });
   check("设备名里的 HTML 被当文本（无 XSS）", () => {
-    const list = $("#device-list");
+    const list = $("#group-list");
     assert.ok(!list.querySelector("img"), "设备名里的 <img> 被解析成了元素 → 没转义");
     assert.ok(list.textContent.includes("<img src=x"), "原始文本应原样显示");
   });
@@ -307,28 +307,43 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual(card.querySelector(".group-id").textContent.trim(), "grp_7KQ2M4XZ9B3D");
     assert.ok(card.textContent.includes("我是管理员"), "没有管理员标记");
     assert.ok(card.textContent.includes("2 台设备"), card.textContent);
-    assert.ok(card.textContent.includes("室友的 iPad（成员）") || card.textContent.includes("室友的 iPad"), "成员名单没显示");
+    assert.ok(card.textContent.includes("室友"), "成员名单没显示");
     assert.ok(card.querySelector('[data-act="remove-member"]'), "管理员看不到「移除成员」");
     assert.ok(card.querySelector('[data-act="dissolve-group"]'), "管理员没有「解散」");
     assert.ok(!card.querySelector('[data-act="leave-group"]'), "管理员不该有「退出」");
-    assert.ok($("#group-count").textContent.includes("共 1 个"), $("#group-count").textContent);
+    assert.ok($("#device-count").textContent.includes("1 个组"), $("#device-count").textContent);
   });
   check("「复制组 id」是手绘 SVG 按钮", () => {
     const btn = $("#group-list [data-act='copy-group']");
     assert.ok(btn.querySelector("svg use"), "没有图标");
     assert.ok(btn.closest("#panel-devices"), "不在设备面板里");
   });
-  check("设备列表：只列同组设备 + 标出共同组", () => {
-    const rows = [...$("#device-list").querySelectorAll("li")];
+  check("合并后只有一栏：组卡片里按组列设备（本设备 + 同组设备，带收件箱数）", () => {
+    assert.ok(!$("#device-list"), "旧的独立设备列表应该删掉了");
+    assert.ok(!$("#group-count"), "旧的设备组计数应该并进「同组设备」栏");
+    const rows = [...doc.querySelectorAll("#group-list .group-card .group-members li")];
     assert.strictEqual(rows.length, 2, `实际 ${rows.length} 行`);
-    assert.ok(rows[0].textContent.includes("本设备"), rows[0].textContent);
-    assert.ok(rows[1].textContent.includes("家里的设备"), "同组设备没有共同组标签");
-    assert.ok(rows[1].textContent.includes("dev_CCCCDDDD"), rows[1].textContent);
-    assert.ok(!visible($("#device-no-group")), "有同组设备时不该提示「还没加入设备组」");
+    assert.ok(rows[0].textContent.includes("我的笔记本（本设备）"), rows[0].textContent);
+    assert.ok(rows[1].textContent.includes("室友"), rows[1].textContent);
+    assert.ok(rows[1].textContent.includes("收件箱"), `没带收件箱数：${rows[1].textContent}`);
+    const heads = [...doc.querySelectorAll("#group-list .group-card")].map((c) => c.textContent);
+    assert.ok(heads.every((h) => !h.includes("dev_CCCCDDDD")), "组卡里不该再重复设备 id");
+    // 设备信息仍然要带令牌拉（发送面板也用它）
     const last = calls.map((c) => c.url).filter((u) => u.startsWith("/api/devices?")).pop();
     assert.ok(last.includes("device_id=dev_AAAABBBB"), last);
     assert.ok(calls.some((c) => c.url.startsWith("/api/devices?") && c.headers && c.headers["X-Device-Token"] === "tok_secret_value"),
       "拉设备列表没带令牌");
+  });
+  check("建组/加入两个表单就在「同组设备」栏下面，操作按钮都在页面上（没有二级页面）", () => {
+    assert.ok($("#group-create-row").closest("#panel-devices"), "建组表单不在设备面板里");
+    assert.ok($("#group-join-row").closest("#panel-devices"), "加入表单不在设备面板里");
+    const section = $("#group-list").previousElementSibling;
+    assert.ok(section && section.id === "group-join-row", "表单应该紧贴在设备列表上面");
+    for (const act of ["remove-member", "copy-group", "dissolve-group"]) {
+      assert.ok(doc.querySelector(`#panel-devices [data-act="${act}"]`), `缺少 ${act} 按钮`);
+    }
+    const card = $("#group-list .group-card");
+    assert.ok(card.querySelector('[data-act="remove-member"]'), "「移出」不在组卡片里");
   });
 
   $("#group-name-input").value = "公司设备";
