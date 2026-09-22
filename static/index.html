@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -315,10 +315,6 @@
       <ul class="device-pick" id="send-targets"></ul>
       <p class="hint hidden" id="send-no-devices">你的设备组里还没有别的设备：先去"设备"标签页建一个组，或用对方给的组 id 加入。</p>
       <p class="hint hidden" id="send-need-device">投递给设备要先把本设备加进设备列表，并且和对方在同一个设备组；只想把东西给对方（不需要组）就用上传区的"生成分享码"，让对方凭码取件。</p>
-      <div class="field hidden" id="send-from-row">
-        <label for="send-from-name">发送者</label>
-        <input type="text" id="send-from-name" class="input" maxlength="40" readonly>
-      </div>
       <div class="field">
         <label for="send-note">附言（可选）</label>
         <input type="text" id="send-note" class="input" maxlength="200" placeholder="例如：周会材料，看完删掉就行">
@@ -334,6 +330,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

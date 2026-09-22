@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 19;
+  const ASSET_VERSION = 20;
 
   const $ = (id) => document.getElementById(id);
 
@@ -90,7 +90,6 @@
     groupJoinBtn: $("group-join-btn"),
     groupRefresh: $("group-refresh"),
     sendNeedDevice: $("send-need-device"),
-    sendFromRow: $("send-from-row"),
     sendBtn: $("send-btn"),
     sendModal: $("send-modal"),
     sendClose: $("send-close"),
@@ -99,7 +98,6 @@
     sendFile: $("send-file"),
     sendTargets: $("send-targets"),
     sendNoDevices: $("send-no-devices"),
-    sendFromName: $("send-from-name"),
     sendNote: $("send-note"),
     sendProgress: $("send-progress"),
     sendBar: $("send-bar"),
@@ -331,8 +329,7 @@
       body.targets = targets;
       const note = els.sendNote.value.trim();
       if (note) body.note = note;
-      if (myDevice) body.from_device_id = myDevice.id;
-      else body.from_name = els.sendFromName.value.trim();
+      if (myDevice) body.from_device_id = myDevice.id;      // 显示名由服务端取设备名，不再传 from_name
     }
     const headers = { "Content-Type": "application/json" };
     if (targets && myDevice) headers["X-Device-Token"] = myDevice.token;
@@ -1042,9 +1039,6 @@
     els.sendFile.textContent = mode === "text"
       ? `将发送：文本（${state.text.length} 字符）· 有效期 ${humanLeft(state.ttl)}`
       : `将发送：${state.file.name}（${humanSize(state.file.size)}）· 有效期 ${humanLeft(state.ttl)}`;
-    els.sendFromName.value = myDevice ? myDevice.name : els.sendFromName.value;
-    els.sendFromName.disabled = !!myDevice;
-    els.sendFromName.placeholder = myDevice ? "" : "匿名设备";
     els.sendModal.classList.remove("hidden");
     loadDevices().then(renderSendTargets);
     loadGroups();
@@ -1061,8 +1055,6 @@
     const others = deviceCache.filter((device) => !(myDevice && device.id === myDevice.id));
     els.sendNoDevices.classList.toggle("hidden", others.length > 0);
     els.sendNeedDevice.classList.toggle("hidden", !!myDevice);
-    els.sendFromRow.classList.toggle("hidden", !myDevice);
-    if (myDevice) els.sendFromName.value = myDevice.name;
 
     // 按"我和它共同的设备组"分区：同一组里的设备排在一起，一眼看出哪些能发
     const buckets = new Map();
@@ -1139,7 +1131,7 @@
     const note = els.sendNote.value.trim();
     if (note) form.append("note", note);
     if (myDevice) form.append("from_device_id", myDevice.id);
-    else form.append("from_name", els.sendFromName.value.trim());
+    // 不再传 from_name：接收端显示的发送者就是本设备登记的设备名
 
     els.sendConfirm.disabled = true;
     els.sendConfirm.textContent = "发送中…";

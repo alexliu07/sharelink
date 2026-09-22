@@ -547,10 +547,16 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.ok(titles.some((t) => t.includes("本设备")), `没有「发给自己」分区：${titles.join(" / ")}`);
     assert.strictEqual($("#send-confirm").disabled, true, "未选设备时不该能发");
   });
+  check("「发送至设备」不再有自定义发送者：输入框没了，请求里也不带 from_name", async () => {
+    assert.ok(!$("#send-from-name"), "发送者输入框还在");
+    assert.ok(!$("#send-from-row"), "发送者那一栏还在");
+    const modal = $("#send-modal").textContent;
+    assert.ok(!modal.includes("发送者"), `弹窗里还有「发送者」：${modal.replace(/\s+/g, " ").slice(0, 80)}`);
+  });
   check("设备相关输入框与分享码输入框同款盒子样式（不是浏览器默认外观）", () => {
     const ref = window.getComputedStyle($("#code-input"));
     const props = ["paddingTop", "paddingLeft", "borderRadius", "borderTopWidth", "backgroundColor", "color"];
-    for (const sel of ["#group-name-input", "#send-from-name", "#send-note"]) {
+    for (const sel of ["#group-name-input", "#send-note"]) {
       const st = window.getComputedStyle($(sel));
       for (const prop of props) {
         assert.strictEqual(st[prop], ref[prop], `${sel} 的 ${prop}=${st[prop]}，分享码框=${ref[prop]}`);
@@ -558,7 +564,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     }
   });
   check("字号是 14px（不是浏览器默认的 13.33px）", () => {
-    for (const sel of ["#group-name-input", "#send-from-name", "#send-note"]) {
+    for (const sel of ["#group-name-input", "#send-note"]) {
       const size = window.getComputedStyle($(sel)).fontSize;
       assert.strictEqual(size, "14px", `${sel} 字号=${size}`);
     }
@@ -586,6 +592,7 @@ const visible = (el) => !el.classList.contains("hidden") && window.getComputedSt
     assert.strictEqual(call.body.get("ttl_seconds"), "3600");
     assert.strictEqual(call.headers["X-Device-Token"], "tok_secret_value");
     assert.strictEqual(call.body.get("from_device_id"), "dev_AAAABBBB");
+    assert.ok(!call.body.has("from_name"), "发文件还带着 from_name（显示名应该一律用设备名）");
     assert.strictEqual(call.body.get("file").name, "报告.pdf");
   });
   check("成功后关闭面板并提示发给了谁", () => {
