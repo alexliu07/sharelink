@@ -586,9 +586,6 @@ public class MainActivity extends Activity {
     private View codeCard() {
         LinearLayout card = card();
         card.addView(line("凭分享码下载", FG, 16));
-        card.addView(withTop(line("输入别人给你的 " + CODE_LENGTH
-                + " 位分享码，直接下载并用系统应用打开。不用登记设备。", MUTED, 13), 8));
-
         final EditText input = new EditText(this);
         input.setHint("例如 AB3D7K9M");
         input.setTextColor(FG);
@@ -711,8 +708,6 @@ public class MainActivity extends Activity {
     private View ttlCard() {
         LinearLayout card = card();
         card.addView(line("上传有效期", FG, 16));
-        card.addView(withTop(line("到期后服务器自动删除，不可恢复。分享面板里上传的文件也用这里选的值。",
-                MUTED, 13), 8));
         card.addView(withTop(ttlChips(), 12));
         ttlStatus = line("", ACCENT, 13);
         card.addView(withTop(ttlStatus, 10));
@@ -806,9 +801,6 @@ public class MainActivity extends Activity {
     private View textCard() {
         LinearLayout card = card();
         card.addView(line("发文本", FG, 16));
-        card.addView(withTop(line("最多 " + MAX_TEXT_CHARS + " 字符：贴链接、验证码、代码片段都行。"
-                + "首行会当文件名，到期同样自动删除。", MUTED, 13), 8));
-
         final EditText input = new EditText(this);
         input.setHint("粘贴或输入要发送的文字…");
         input.setTextColor(FG);
@@ -951,7 +943,6 @@ public class MainActivity extends Activity {
     private View actionsCard() {
         LinearLayout card = card();
         card.addView(line("发文件给别的设备", FG, 16));
-        card.addView(withTop(line("选一个文件，再勾选目标设备，一次上传直接投递（不勾就是普通分享码）。", MUTED, 13), 8));
         Button pick = button("选择文件发给设备", true);
         pick.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -1406,10 +1397,10 @@ public class MainActivity extends Activity {
         final boolean registered = device != null;
         LinearLayout card = card();
         card.addView(line("设备组", FG, 16));
-        card.addView(withTop(line(registered
-                ? "只有同一个组里的设备之间才能互传。组 id 就是邀请凭证：复制下来发给别的设备，对方粘贴加入就和你同组了。"
-                : "点下面的按钮就会自动把这台手机加进设备列表：创建时你直接进组并成为管理员，"
-                  + "加入时用对方给的组 id。名字默认用手机型号，之后在设备页可改。", MUTED, 13), 8));
+        if (!registered) {                     // 未登记时给一句说明；已在组里就不再解释用法
+            card.addView(withTop(line("点下面的按钮就会自动把这台手机加进设备列表：创建时你直接进组并成为管理员，"
+                    + "加入时用对方给的组 id。名字默认用手机型号，之后在设备页可改。", MUTED, 13), 8));
+        }
 
         LinearLayout buttons = row();
         Button create = button("创建设备组", true);
