@@ -54,6 +54,13 @@ DEX_NEEDLES = [
     "加入时用对方给的组 id",      # 1.14：未登记时的说明文案
     "本机已在组里（你是管理员）",  # 1.14：建组成功提示（说明本机自动进组）
 ]
+GONE_DEX_NEEDLES = [        # 界面上已经删掉的说明文字：不该再回到 dex 里（首页文案简化的回归护栏）
+    "只有同一个组里的设备之间才能互传",
+    "到期后服务器自动删除，不可恢复",
+    "选一个文件，再勾选目标设备",
+    "贴链接、验证码、代码片段都行",
+    "直接下载并用系统应用打开",
+]
 
 
 def fetch_sum():
@@ -140,8 +147,10 @@ def main():
     ok2 = all(n.encode("utf-16-le") in manifest for n in MANIFEST_NEEDLES)
     print(f"  分享目标声明（SEND/SEND_MULTIPLE/LAUNCHER/*/*） → {'✅ 齐全' if ok2 else '❌ 有缺失'}")
     missing = [n for n in DEX_NEEDLES if n.encode() not in dex]
-    ok3 = not missing
-    print(f"  服务端地址已编入 dex → {'✅' if ok3 else '❌ 缺 ' + str(missing)}")
+    back = [n for n in GONE_DEX_NEEDLES if n.encode() in dex]
+    ok3 = not missing and not back
+    print(f"  服务端地址已编入 dex → {'✅' if not missing else '❌ 缺 ' + str(missing)}")
+    print(f"  已删掉的说明文字没有回到 dex → {'✅' if not back else '❌ 又出现了 ' + str(back)}")
 
     der = v2_signer_cert(apk)
     fp = cert_fingerprint(der)
