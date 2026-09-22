@@ -14,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ShareLink">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <!-- SVG 图标库：所有图标都以 24×24 描边路径定义一次，页面各处用 <use> 引用；
@@ -100,7 +100,6 @@
       <img class="logo" src="favicon.svg?v=2" width="34" height="34" alt="ShareLink">
       <div>
         <h1>ShareLink</h1>
-        <p class="tagline">上传 → 拿分享码 → 到期自动删除</p>
       </div>
     </div>
     <div class="stats" id="stats" title="站点统计">载入中…</div>
@@ -150,7 +149,6 @@
             <option value="86400">天</option>
           </select>
         </div>
-        <p class="hint" id="ttl-hint">到期后文件会被服务器自动删除，不可恢复。</p>
       </div>
 
       <div class="btn-row">
@@ -164,8 +162,7 @@
         <label for="text-input">文本内容</label>
         <textarea id="text-input" class="text-input" rows="5" maxlength="10000" spellcheck="false"
                   placeholder="粘贴或输入要发送的文字…"></textarea>
-        <p class="hint"><span id="text-count">0</span> / <span id="text-limit">10000</span> 字符 · 首行会当文件名，
-          有效期用上面的设置，到期同样自动删除。</p>
+        <p class="hint"><span id="text-count">0</span> / <span id="text-limit">10000</span> 字符</p>
       </div>
 
       <div class="btn-row">
@@ -240,7 +237,6 @@
           <span class="picked-icon"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg></span>
           <div class="install-body">
             <strong>把 ShareLink 装成应用</strong>
-            <p class="hint">独立图标 + 全屏窗口，不用每次输网址，设备令牌也不会因为换页面而丢。</p>
             <p class="hint hidden" id="install-hint-os"></p>
           </div>
           <button class="primary inline hidden" id="install-btn"><svg class="icon" aria-hidden="true"><use href="#icon-install"></use></svg>装到本设备</button>
@@ -249,7 +245,6 @@
         <div class="install-apk">
           <a class="ghost inline" id="apk-download-btn" rel="noopener"
              href="https://github.com/alexliu07/sharelink/releases/download/android-latest/ShareLink.apk"><svg class="icon" aria-hidden="true"><use href="#icon-apk"></use></svg>下载APK</a>
-          <p class="hint">安卓原生小工具（几十 KB）：在任意应用里点「分享」就能上传，适合没有 Google 服务、装不了 PWA 的机器。</p>
         </div>
       </div>
 
@@ -280,10 +275,7 @@
         <div class="token-box">
           <h3 class="section-title">
             <svg class="icon" aria-hidden="true"><use href="#icon-box"></use></svg>设备令牌
-            <span class="muted">换手机 / 清了浏览器数据时用它找回</span>
           </h3>
-          <p class="hint">令牌就是本设备的凭证，别发给别人。「导出令牌」把它复制到剪贴板，
-            在另一台设备或手机 App 上点「导入令牌」粘贴认领，就能连设备组和收件箱一起拿回来。</p>
           <div class="token-actions">
             <button class="primary inline" id="device-copy-btn"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>导出令牌</button>
             <button class="ghost" id="device-import-apply-btn"><svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>导入令牌</button>
@@ -304,8 +296,6 @@
           <h3 class="section-title"><svg class="icon" aria-hidden="true"><use href="#icon-group"></use></svg>设备组 <span class="muted" id="group-count"></span></h3>
           <button class="ghost" id="group-refresh" title="刷新设备组" aria-label="刷新设备组"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>刷新</button>
         </div>
-        <p class="hint">只有同一个设备组里的设备之间才能互传。组 id 相当于邀请凭证：复制下来发给别人，对方粘贴加入就能和你在同一组。</p>
-
         <div class="group-form" id="group-create-row">
           <input type="text" id="group-name-input" class="input" maxlength="40" placeholder="新组名，例如：家里的设备">
           <button class="primary inline" id="group-create-btn"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>创建设备组</button>
@@ -332,7 +322,6 @@
 
   <footer class="site-footer">
     <span>ShareLink · FastAPI + SQLite</span>
-    <span>过期文件由后台任务自动清理</span>
   </footer>
 
   <!-- 发送至设备：设备多选面板 -->
@@ -365,6 +354,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

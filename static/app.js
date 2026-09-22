@@ -6,7 +6,7 @@
   // 必须把这个版本号 +1 并同步 index.html，否则浏览器/CDN 可能继续用旧文件
   // （CF 早期曾把 .js 按 4 小时缓存，光靠 no-cache 头救不回已经缓存过的那份）。
   // scripts/check_frontend.py 会强制三者一致。
-  const ASSET_VERSION = 10;
+  const ASSET_VERSION = 11;
 
   const $ = (id) => document.getElementById(id);
 
@@ -207,8 +207,7 @@
       els.stats.innerHTML =
         `${data.shares} 个分享 · ${humanSize(data.disk_bytes)}<br>` +
         `单文件上限 ${data.max_upload_mb} MB`;
-      els.dzHint.textContent =
-        `单文件上限 ${data.max_upload_mb} MB · 到期后自动删除`;
+      els.dzHint.textContent = `单文件上限 ${data.max_upload_mb} MB`;
       if (data.max_text_chars) {                      // 文本上限也以服务端为准
         MAX_TEXT_CHARS = data.max_text_chars;
         els.textLimit.textContent = String(MAX_TEXT_CHARS);
@@ -620,7 +619,7 @@
     els.deviceSelf.classList.toggle("hidden", !has);
     if (has) {
       els.selfName.textContent = myDevice.name;
-      els.selfMeta.textContent = `设备 id ${myDevice.id} · 令牌只存在本浏览器`;
+      els.selfMeta.textContent = `设备 id ${myDevice.id}`;
       // 令牌不再显示在页面上：要用就点「导出令牌」
       loadGroups();                                        // 登记/恢复后立刻显示设备组（含成员）
     } else {
@@ -904,7 +903,7 @@
     try {
       const data = await apiJson(`/api/devices/${myDevice.id}/inbox`, { headers: deviceHeaders() });
       renderInbox(data);
-      els.selfMeta.textContent = `设备 id ${myDevice.id} · 令牌只存在本浏览器 · 收件箱 ${data.count} 个文件`;
+      els.selfMeta.textContent = `设备 id ${myDevice.id} · 收件箱 ${data.count} 个文件`;
       setBadge(data.unread);
       if (markSeen && data.unread) {
         await apiJson(`/api/devices/${myDevice.id}/inbox/seen`, { method: "POST", headers: deviceHeaders() });
